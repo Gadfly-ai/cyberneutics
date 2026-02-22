@@ -257,6 +257,7 @@ The characters aren't real people. But the cognitive diversity they represent is
 ---
 
 **Related artifacts**:
+- [Condorcet's Jury Theorem and the Committee](./condorcet-jury-theorem-and-committee.md) — clarifies the relationship between the committee process and Condorcet's jury theorem; documents where we do not satisfy CJT and why.
 - [Robert's Rules as Forcing Functions](./roberts-rules-forcing-function.md)
 - [Independent Evaluation Protocols](./independent-evaluation.md)
 - [Cross-Scenario Learning](./cross-scenario-learning.md)

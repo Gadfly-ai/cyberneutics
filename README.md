@@ -143,6 +143,8 @@ There's also a nice echo of heuristics in there, which fits the System 1 / fast-
 
 This is early-stage documentation of an emerging methodology. The techniques described here have been refined through iterative practice and have reached stable behavioral equilibrium. The theoretical framework is being formalized.
 
+**Run and test:** For how to run the methodology (skills in chat, string-diagram script) and how to test the repo (smoke test, structure checks), see the [repository review and run guide](meta/repository-review-and-run-guide.md). For recent session context and maintainer hand-off, see the latest handoff in [agent/](agent/).
+
 **Evidence base**: The adversarial committee technique has empirical support from research on multi-agent reasoning — see [Societies of Thought](essays/societies-of-thought-synthesis.md) for a synthesis of findings from Google, UChicago, and the Santa Fe Institute showing that perspective-switching and conversational scaffolding improve reasoning quality. The theoretical foundations draw on established work in sense-making methodology (Dervin), second-order cybernetics (von Foerster, Bateson), and process philosophy (Deleuze). What remains to be validated is the specific combination of techniques and their calibration across problem domains.
 
 Feedback, questions, and contributions welcome.

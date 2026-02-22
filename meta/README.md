@@ -49,6 +49,13 @@ whether the methodology outperforms simpler approaches. Includes
 the probability distribution, debate history, and calibration anchors
 for what evidence would change the numbers.
 
+### [repository-review-and-run-guide.md](repository-review-and-run-guide.md)
+
+In-depth review of the repo and a concrete run/test guide: what is
+runnable (skills in an AI session, the string-diagram Python script),
+how to run the methodology and the script, current testing state, and
+recommended lightweight automation (including `scripts/test_string_diagram.py`).
+
 ## Why This Directory Exists
 
 The methodology claims to be self-improving: applying Cyberneutics to
