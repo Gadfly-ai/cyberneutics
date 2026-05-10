@@ -49,6 +49,13 @@ whether the methodology outperforms simpler approaches. Includes
 the probability distribution, debate history, and calibration anchors
 for what evidence would change the numbers.
 
+### [mvk-infctl-temporal-context.md](mvk-infctl-temporal-context.md)
+
+Cross-repository context from the MVK/infctl documentation repo: how
+Cyberneutics relates to infctl-cli and the Temporal orchestration plan,
+and where the two efforts might connect (no overlapping orchestration;
+optional application note for infra decisions).
+
 ### [repository-review-and-run-guide.md](repository-review-and-run-guide.md)
 
 In-depth review of the repo and a concrete run/test guide: what is

@@ -1,0 +1,257 @@
+@import "tailwindcss";
+
+/* Share Tech Mono + Orbitron wired from layout via CSS variables */
+@theme {
+  --font-sans: var(--font-share-tech-mono), "Courier New", Courier, ui-monospace, monospace;
+  --font-mono: var(--font-share-tech-mono), "Courier New", monospace;
+}
+
+:root {
+  --hackers-bg-deep: #040608;
+  --hackers-cyan: #05d9e8;
+  --hackers-magenta: #ff2a6d;
+}
+
+/* Acid Burn / Hackers (1995) cyberdeck vibe — dark glass panels, phosphor, CRT scanlines */
+.acid-burn-root {
+  color-scheme: dark;
+}
+
+.acid-burn-root body {
+  font-family: var(--font-sans);
+  background-color: var(--hackers-bg-deep);
+  background-image:
+    linear-gradient(rgba(5, 217, 232, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(5, 217, 232, 0.04) 1px, transparent 1px),
+    radial-gradient(ellipse 90% 60% at 50% -30%, rgba(255, 42, 109, 0.14), transparent 55%),
+    radial-gradient(ellipse 50% 45% at 100% 110%, rgba(5, 217, 232, 0.1), transparent 50%);
+  background-size:
+    100% 22px,
+    22px 100%,
+    100% 100%,
+    100% 100%;
+  background-attachment: fixed;
+  color: #9ecbb8;
+  position: relative;
+}
+
+/* CRT scanline overlay */
+.acid-burn-root body::before {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    transparent 0,
+    var(--hackers-bg-deep) 1px,
+    transparent 2px
+  );
+  background-size: 100% 3px;
+  opacity: 0.22;
+  mix-blend-mode: multiply;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acid-burn-root body::before {
+    opacity: 0.08;
+  }
+}
+
+/* Links */
+.acid-burn-root main a {
+  color: var(--hackers-cyan);
+  text-shadow: 0 0 12px rgba(5, 217, 232, 0.45);
+}
+
+.acid-burn-root main a:hover {
+  color: #7df9ff;
+}
+
+/* Glass panels (maps former “white” cards) */
+.acid-burn-root .bg-white {
+  background-color: rgba(8, 12, 20, 0.94) !important;
+  box-shadow:
+    0 0 0 1px rgba(5, 217, 232, 0.32),
+    0 0 32px rgba(5, 217, 232, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.acid-burn-root .bg-slate-50 {
+  background-color: rgba(5, 217, 232, 0.07) !important;
+}
+
+.acid-burn-root .bg-slate-100 {
+  background-color: rgba(0, 0, 0, 0.42) !important;
+}
+
+/* Light text on dark surfaces (Tailwind slate text was designed for white cards) */
+.acid-burn-root .text-slate-900,
+.acid-burn-root .text-slate-800 {
+  color: #e8fff4 !important;
+}
+
+.acid-burn-root .text-slate-700,
+.acid-burn-root .text-slate-600 {
+  color: #9ecbb8 !important;
+}
+
+.acid-burn-root .text-slate-500 {
+  color: #6a9a88 !important;
+}
+
+.acid-burn-root .text-slate-400 {
+  color: #5a806f !important;
+}
+
+.acid-burn-root .bg-slate-400 {
+  background-color: rgba(5, 217, 232, 0.35) !important;
+}
+
+/* Borders → neon cyan wireframe */
+.acid-burn-root .border-slate-200 {
+  border-color: rgba(5, 217, 232, 0.28) !important;
+}
+
+.acid-burn-root .border-slate-300 {
+  border-color: rgba(5, 217, 232, 0.42) !important;
+}
+
+.acid-burn-root .shadow-sm {
+  box-shadow:
+    0 0 0 1px rgba(5, 217, 232, 0.12),
+    0 6px 28px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Primary / selected controls */
+.acid-burn-root .bg-slate-900 {
+  background: linear-gradient(165deg, #0c1c28 0%, #050f18 55%, #030a10 100%) !important;
+  box-shadow:
+    0 0 24px rgba(255, 42, 109, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(5, 217, 232, 0.38) !important;
+}
+
+.acid-burn-root .hover\:bg-slate-800:hover {
+  background: linear-gradient(165deg, #142a3a 0%, #081820 100%) !important;
+}
+
+.acid-burn-root .hover\:bg-white:hover {
+  background-color: rgba(5, 217, 232, 0.1) !important;
+}
+
+.acid-burn-root .hover\:bg-sky-50:hover {
+  background-color: rgba(5, 217, 232, 0.12) !important;
+}
+
+.acid-burn-root .hover\:border-sky-500:hover {
+  border-color: var(--hackers-magenta) !important;
+  box-shadow: 0 0 14px rgba(255, 42, 109, 0.35);
+}
+
+.acid-burn-root .focus\:border-sky-500:focus {
+  border-color: var(--hackers-cyan) !important;
+}
+
+.acid-burn-root .focus\:ring-sky-200:focus {
+  --tw-ring-color: rgba(5, 217, 232, 0.35);
+}
+
+/* Sky accent → electric cyan */
+.acid-burn-root .text-sky-700,
+.acid-burn-root .hover\:text-sky-700:hover {
+  color: #5ef4ff !important;
+}
+
+.acid-burn-root .border-sky-200 {
+  border-color: rgba(5, 217, 232, 0.35) !important;
+}
+
+.acid-burn-root .bg-sky-50 {
+  background-color: rgba(5, 217, 232, 0.1) !important;
+}
+
+.acid-burn-root .text-sky-800 {
+  color: #b8fbff !important;
+}
+
+/* Emerald → phosphor */
+.acid-burn-root .bg-emerald-50 {
+  background-color: rgba(0, 255, 153, 0.08) !important;
+}
+
+.acid-burn-root .border-emerald-200,
+.acid-burn-root .border-emerald-300 {
+  border-color: rgba(0, 255, 170, 0.4) !important;
+}
+
+.acid-burn-root .text-emerald-600,
+.acid-burn-root .text-emerald-700,
+.acid-burn-root .text-emerald-800 {
+  color: #5dffb0 !important;
+}
+
+.acid-burn-root .bg-emerald-500 {
+  background-color: #00ff88 !important;
+  box-shadow: 0 0 12px rgba(0, 255, 136, 0.45);
+}
+
+/* Rose / amber → alarm colors */
+.acid-burn-root .bg-rose-50 {
+  background-color: rgba(255, 42, 109, 0.12) !important;
+}
+
+.acid-burn-root .border-rose-200,
+.acid-burn-root .border-rose-300 {
+  border-color: rgba(255, 42, 109, 0.45) !important;
+}
+
+.acid-burn-root .text-rose-700,
+.acid-burn-root .text-rose-800 {
+  color: #ff7eb3 !important;
+}
+
+.acid-burn-root .hover\:border-rose-400:hover {
+  border-color: var(--hackers-magenta) !important;
+}
+
+.acid-burn-root .bg-amber-50 {
+  background-color: rgba(255, 184, 0, 0.1) !important;
+}
+
+.acid-burn-root .border-amber-200 {
+  border-color: rgba(255, 200, 0, 0.35) !important;
+}
+
+.acid-burn-root .text-amber-600,
+.acid-burn-root .text-amber-800 {
+  color: #ffd060 !important;
+}
+
+.acid-burn-root pre,
+.acid-burn-root code {
+  font-family: var(--font-mono);
+}
+
+.acid-burn-root ::selection {
+  background: rgba(255, 42, 109, 0.5);
+  color: #fff;
+}
+
+/* Orbitron display titling (class used in app) */
+.acid-burn-root .acid-burn-display {
+  font-family: var(--font-orbitron), system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #f0fff8 !important;
+  text-shadow:
+    0 0 14px rgba(5, 217, 232, 0.75),
+    0 0 36px rgba(255, 42, 109, 0.35);
+}
+
+.acid-burn-root .hackers-prompt {
+  font-family: var(--font-mono);
+  color: var(--hackers-magenta) !important;
+  text-shadow: 0 0 10px rgba(255, 42, 109, 0.5);
+}

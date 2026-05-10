@@ -24,6 +24,9 @@ Divergent narrative exploration of possible futures. Deploy independent narrativ
 ### [Deliberated Choice Workflow](./deliberated-choice-workflow.md)
 The composed fan→funnel pipeline: generate divergent scenarios, then deliberate across them with the adversarial committee. Converts ambiguity into justified commitment. Documents the manual workflow for chaining `/scenarios` and `/committee`.
 
+### [Decision Accountability Layer](./decision-accountability-layer.md)
+Advisory oversight with mandatory disposition and override logging. Defines concern lifecycle, data contracts, governance cadence, and backtesting protocol so concerns cannot be ignored without traceability.
+
 ## Getting Started
 
 ### [Quick Start Guide](./quick-start-guide.md)

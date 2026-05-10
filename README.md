@@ -45,6 +45,7 @@ Large Language Models are not databases. They are not logic engines. They are **
 Or step by step:
 1.  **Read**: [Why Narrative Engines Change Everything](essays/01-why-narrative-engines-change-everything.md)
 2.  **Try**: [Adversarial Committees](artifacts/adversarial-committees.md) (a concrete technique you can use today)
+3.  **Run the demo (optional):** [Interactive demo](demo/README.md) — naive vs committee pipeline in the browser on your machine (Node 20+)
 
 **Want the theory?**
 *   Read the [Essays](essays/) in order, starting with [From Practice to Theory](./essays/02-from-practice-to-theory.md).
@@ -87,6 +88,8 @@ These aren't incremental improvements. They represent a fundamentally different 
 - [Independent evaluation protocols](./artifacts/independent-evaluation.md)
 - [Hiring Decision Example](./artifacts/examples/hiring-decision-example.md)
 - [Worked examples and transcripts](./artifacts/examples/README.md)
+
+**[demo/](demo/)** - Interactive local app (Next.js): committee vs naive comparison; see [demo/README.md](demo/README.md) for quick start, architecture, and how local vs. API modes work
 
 **[Palgebra](palgebra/)** - Formal algebra for LLM pipelines
 - **[Reference Card](./palgebra/reference.md)** — start here: syntax, operators, morphism types, propagation rules, composition laws
@@ -143,11 +146,11 @@ There's also a nice echo of heuristics in there, which fits the System 1 / fast-
 
 This is early-stage documentation of an emerging methodology. The techniques described here have been refined through iterative practice and have reached stable behavioral equilibrium. The theoretical framework is being formalized.
 
-**Run and test:** For how to run the methodology (skills in chat, string-diagram script) and how to test the repo (smoke test, structure checks), see the [repository review and run guide](meta/repository-review-and-run-guide.md). For recent session context and maintainer hand-off, see the latest handoff in [agent/](agent/).
+**Run and test:** For how to run the methodology (skills in chat, string-diagram script), the **local interactive demo** in `demo/`, and how to test the repo (smoke test, structure checks, CI), see the [repository review and run guide](meta/repository-review-and-run-guide.md). For recent session context and maintainer hand-off, see the latest handoff in [agent/](agent/).
 
 **Evidence base**: The adversarial committee technique has empirical support from research on multi-agent reasoning — see [Societies of Thought](essays/societies-of-thought-synthesis.md) for a synthesis of findings from Google, UChicago, and the Santa Fe Institute showing that perspective-switching and conversational scaffolding improve reasoning quality. The theoretical foundations draw on established work in sense-making methodology (Dervin), second-order cybernetics (von Foerster, Bateson), and process philosophy (Deleuze). What remains to be validated is the specific combination of techniques and their calibration across problem domains.
 
-Feedback, questions, and contributions welcome.
+Feedback and questions are welcome—especially if you’re running the **demo** or applying the methodology in your own work. This repo is shared so people can **use and read** the material; it is not oriented around an open-contribution workflow.
 
 ## License
 

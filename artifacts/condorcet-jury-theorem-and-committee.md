@@ -29,6 +29,27 @@ Extensions allow **heterogeneous competence** (each voter has a possibly differe
 
 The **intuition** that motivates our use of multiple perspectives is related: many independent, moderately competent perspectives can outperform a single one. That intuition is consistent with CJT when its assumptions hold. Our process, however, **does not implement those assumptions**. We document the analogy so that the intuition is clear, and the gap is explicit.
 
+### Visual 1: Objective mismatch
+
+```mermaid
+flowchart LR
+    subgraph CJT["Condorcet lens (independent aggregation)"]
+        C1["Input: n independent judgments"]
+        C2["Operation: majority vote"]
+        C3["Objective: maximize P(majority correct)"]
+        C4["Output: binary/categorical verdict"]
+        C1 --> C2 --> C3 --> C4
+    end
+
+    subgraph DELIB["Committee lens (adversarial deliberation)"]
+        D1["Input: multiple perspectives in tension"]
+        D2["Operation: challenge and response"]
+        D3["Objective: increase map quality<br/>(assumptions, trade-offs, distinguishing evidence)"]
+        D4["Output: resolution + decision-space map"]
+        D1 --> D2 --> D3 --> D4
+    end
+```
+
 ---
 
 ## 3. Where we do not satisfy CJT
@@ -42,6 +63,68 @@ Our committee process **deliberately deviates** from the conditions of Condorcet
 | **Literal probability *p* (or *p*ₑ) per voter** | We have **propensities** (e.g. paranoid realism, evidence prosecutor), not competence scores. We do not measure or claim *p* > 1/2 for any character. | Even if we had a vote step, we could not claim CJT applies without evidence of competence; such evidence is not part of our design. |
 
 **Summary:** We are not implementing a jury. We are implementing **adversarial sense-making**: multiple perspectives in tension, with the goal of surfacing what is at stake, not of producing a single "correct" answer by majority rule.
+
+### Visual 2: Dependence as feature
+
+```mermaid
+flowchart LR
+    subgraph IND["Independent judgments (CJT condition)"]
+        I1["Voter A"]
+        I2["Voter B"]
+        I3["Voter C"]
+        I4["Voter D"]
+        I5["Voter E"]
+        IV["Vote aggregation"]
+        I1 --> IV
+        I2 --> IV
+        I3 --> IV
+        I4 --> IV
+        I5 --> IV
+    end
+
+    subgraph DEP["Deliberative dependence (committee design)"]
+        M["Maya"]
+        F["Frankie"]
+        J["Joe"]
+        V["Vic"]
+        R["Rae"]
+        OUT["Resolution + map"]
+        M <--> F
+        F <--> J
+        J <--> V
+        V <--> R
+        R <--> M
+        M --> OUT
+        F --> OUT
+        J --> OUT
+        V --> OUT
+        R --> OUT
+    end
+```
+
+### Visual 3: User-state delta
+
+```mermaid
+flowchart LR
+    subgraph BEFORE["Before committee run"]
+        B1["Single dominant framing"]
+        B2["Assumptions mostly implicit"]
+        B3["Confidence is intuitive/unstated"]
+        B4["Next evidence unclear"]
+    end
+
+    subgraph AFTER["After committee + metacognitive framing"]
+        A1["Multiple tested framings"]
+        A2["Load-bearing assumptions explicit"]
+        A3["Confidence and uncertainty explicit"]
+        A4["Clear evidence priorities and revisit triggers"]
+    end
+
+    B1 --> A1
+    B2 --> A2
+    B3 --> A3
+    B4 --> A4
+```
 
 ---
 

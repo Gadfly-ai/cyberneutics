@@ -8,15 +8,16 @@
 
 ### 1.1 Summary
 
-Cyberneutics is **methodology documentation plus one executable component**. It is not an application you "build and run"; it is:
+Cyberneutics is **methodology documentation plus executable components**. Most of the repo is read and used through an AI session; a few pieces run as normal programs:
 
 - **Essays** — why narrative engines need narrative engineering, sense-making, decisions under uncertainty.
 - **Artifacts** — how: adversarial committees, evaluation protocols, workflows, examples.
 - **Palgebra** — formal algebra for pipelines (resource equations, string diagrams, propagation rules).
 - **Agent skills** — slash commands (e.g. `/committee`, `/review`, `/scenarios`, `/probe`, `/handoff`, `/string-diagram`) that an AI agent executes when working in this repo; the skills are specified in `.claude/skills/*/SKILL.md` and **run inside an AI session**, not as standalone programs.
-- **One script** — `.claude/skills/string-diagram/resource_equations_to_mermaid.py` (Python 3.7+, no external deps): parses resource equations and emits Mermaid flowcharts.
+- **Interactive demo** — `demo/`: a **Next.js** app you run locally (Node 20+) that contrasts naive vs committee pipelines in the browser. See `demo/README.md`.
+- **String-diagram script** — `.claude/skills/string-diagram/resource_equations_to_mermaid.py` (Python 3.7+, no external deps): parses resource equations and emits Mermaid flowcharts.
 
-So "running" the repo has two meanings: (1) **using the methodology** by invoking skills in an AI session, and (2) **running the only code** (the equation→Mermaid script). "Testing" is currently **manual** — run skills, inspect outputs, compare to schemas and examples — plus optional **automation** for the script and for structural checks.
+So "running" the repo has several meanings: (1) **using the methodology** by invoking skills in an AI session, (2) **running the interactive demo** (`npm run dev` in `demo/`), and (3) **running the equation→Mermaid script**. "Testing" includes **manual** skill runs, **automated** checks for the string-diagram script, **`demo/`** lint/test/build (and CI when enabled), and optional structural checks.
 
 ### 1.2 Repository Map (from CLAUDE.md)
 
@@ -28,15 +29,16 @@ So "running" the repo has two meanings: (1) **using the methodology** by invokin
 | `applications/`| Domain analyses             | Read-only |
 | `meta/`        | Methodology evolution, uptake| This doc; planning |
 | `agent/`       | Handoffs, roster, deliberations, scenarios, probes | **Core of "running":** roster and scenario-roster drive skills; deliberations/scenarios/probes are outputs to validate |
+| `demo/`        | Next.js interactive demo    | **Local app:** `npm install`, `npm run setup`, `npm run dev`; see `demo/README.md` |
 | `.claude/skills/` | Slash-command specs + one Python script | **Executable surface** |
 | `references/`  | Bibliography                | Read-only |
 
 ### 1.3 Dependencies and Platforms
 
-- **No Node/npm, no package.json** — front-end or JS tooling is not used.
-- **Python** — only for `resource_equations_to_mermaid.py`. Script uses stdlib only (`re`, `sys`, `argparse`, `dataclasses`); Python 3.7+.
-- **No requirements.txt or pyproject.toml** — intentional; the script is dependency-free.
-- **Skills** — require an AI agent (e.g. Claude in Cursor) that can read the repo and follow the SKILL.md instructions; no separate runtime.
+- **Node.js 20+ and npm** — for `demo/` only (`demo/package.json`, `demo/package-lock.json`). Install dependencies with `npm install` inside `demo/`; see `demo/README.md`.
+- **Python** — for `resource_equations_to_mermaid.py`. Script uses stdlib only (`re`, `sys`, `argparse`, `dataclasses`); Python 3.7+.
+- **No top-level requirements.txt or pyproject.toml** — intentional for the Python script; it is dependency-free.
+- **Skills** — require an AI agent (e.g. Claude in Cursor) that can read the repo and follow the SKILL.md instructions; no separate runtime beyond that.
 
 ---
 
@@ -68,7 +70,26 @@ So "running" the repo has two meanings: (1) **using the methodology** by invokin
 
 **Remediation:** If a review scores below the threshold (e.g. sum of five rubrics < 13), run committee remediation (e.g. "committee respond to evaluation for agent/deliberations/<slug>"); the skill writes 05-remediation-1.md and appends to 02-deliberation.md, then you can run `/review` again.
 
-### 2.2 Running the Only Code (String-Diagram Script)
+### 2.2 Running the Interactive Demo (`demo/`)
+
+**Purpose:** Browser UI that compares a naive single-model path to a multi-character committee pipeline (aligned with [Adversarial committees](../artifacts/adversarial-committees.md)).
+
+**Where:** Your machine only — not a hosted product from this README.
+
+**Steps (short):**
+
+```bash
+cd demo
+npm install
+npm run setup
+npm run dev
+```
+
+Open http://localhost:3000. Optional: add `ANTHROPIC_API_KEY` to `demo/.env.local` for live API calls; without it, the app uses deterministic local demo output. **`demo/README.md`** documents quick start, execution modes, API routes vs. `lib/pipeline.ts`, and what is stored in `localStorage`.
+
+**Production-style local run:** `npm run build` then `npm run start` in `demo/`.
+
+### 2.3 Running the String-Diagram Script (Python)
 
 **Script:** `.claude/skills/string-diagram/resource_equations_to_mermaid.py`
 
@@ -98,8 +119,9 @@ Output is valid Mermaid flowchart syntax; you can paste it into Mermaid Live or 
 
 ### 3.1 Current State
 
-- **No automated test suite** — no pytest, jest, or CI config found.
-- **No package.json or CI YAML** — nothing to "npm test" or "CI test" out of the box.
+- **`demo/`** — has `npm test` (Vitest), `npm run lint`, and `npm run build`. GitHub Actions workflow **`.github/workflows/demo-ci.yml`** runs on changes under `demo/` (install, lint, test, build).
+- **Python script** — smoke test via `scripts/test_string_diagram.py` (repo root).
+- **No pytest/jest for essays or skills** — methodology outputs are still validated mostly by inspection.
 - **Evidence of “testing” in the methodological sense:**
   - Deliberation records (e.g. `agent/deliberations/testing-deliberated-choice-workflow/`, `is-author-crackpot-revisited/`) are real runs that validate the committee + review + remediation flow.
   - Handoff notes: `/probe` is still untested; `/review` on methodology-adoption (scenario-aware resolution) not yet run; comparative evaluation (one decision, three methods, same rubric) is the highest-value next evidence.
@@ -129,7 +151,12 @@ It runs the converter on the three equation files in `.claude/skills/string-diag
 
 - Check for broken internal links (e.g. from README, CLAUDE.md, artifacts to essays/palgebra) and for "coming soon" or placeholder links listed in `agent/gap_analysis.md`.
 
-**D. Skill “smoke” (manual or light automation)**
+**D. Demo app (`demo/`)**
+
+- From `demo/`: `npm run lint`, `npm test`, `npm run build` (no API key required for build; local demo mode does not call Anthropic).
+- CI mirrors these steps when `.github/workflows/demo-ci.yml` is enabled on the remote.
+
+**E. Skill “smoke” (manual or light automation)**
 
 - **Manual:** Run `/committee quick <simple topic>`, then `/review` on that deliberation; confirm 00–04 files exist and evaluation file has rubric scores and verdict.
 - **Light automation:** A script could verify that after a run, `agent/deliberations/<slug>/` contains the minimal set of files and that 03-resolution.md and 04-evaluation-1.md have YAML blocks with expected keys. This does not run the AI; it only checks output shape.
@@ -149,6 +176,7 @@ It runs the converter on the three equation files in `.claude/skills/string-diag
 1. Read `README.md` and, if working as an AI agent, `CLAUDE.md` and the latest `agent/handoff-*.md`.
 2. Confirm `agent/roster.md` and `agent/scenario-roster.md` exist.
 3. (Optional) Run the string-diagram script on `decision-monad-equations.txt` and open the generated `.mermaid` in a viewer.
+4. (Optional) Run the interactive demo: `cd demo && npm install && npm run setup && npm run dev` (see `demo/README.md`).
 
 ### 4.2 Regular “Run” (Using the Methodology)
 
@@ -162,7 +190,7 @@ It runs the converter on the three equation files in `.claude/skills/string-diag
 
 - **Included:** `scripts/test_string_diagram.py` — smoke test for the equation→Mermaid script (see §3.2 A). Run from repo root: `python scripts/test_string_diagram.py`.
 - **Optional — structure:** A script or CI job that checks presence of `agent/roster.md` and `agent/scenario-roster.md` and, for one or two known deliberation directories, checks for 00–04 files and basic YAML structure in charter/resolution.
-- **Optional — CI:** If you use GitHub Actions, a minimal job could: (1) run `python scripts/test_string_diagram.py`, (2) run the structural checks above. No network or secrets required.
+- **Optional — CI:** The **demo** workflow runs `npm ci`, lint, test, and build in `demo/`. A separate minimal job can run `python scripts/test_string_diagram.py` and structural checks. No secrets are required for those jobs.
 
 ---
 
@@ -170,11 +198,11 @@ It runs the converter on the three equation files in `.claude/skills/string-diag
 
 | Question | Answer |
 |----------|--------|
-| **What do I “run”?** | (1) Skills inside an AI session (slash commands). (2) The Python script for equations → Mermaid. |
-| **What do I “test”?** | Script (exit code, output shape), repo structure (rosters, deliberation dirs), and optionally link/schema checks; methodology quality by running skills and reviewing outputs. |
-| **Where is the executable code?** | `.claude/skills/string-diagram/resource_equations_to_mermaid.py` only. |
-| **Dependencies?** | Python 3.7+ (stdlib only). AI agent for skills. |
-| **CI today?** | None. You can add a small job that runs `scripts/test_string_diagram.py` and optional structure checks. |
+| **What do I “run”?** | (1) Skills inside an AI session (slash commands). (2) Interactive demo in `demo/` (`npm run dev`). (3) The Python script for equations → Mermaid. |
+| **What do I “test”?** | Demo: lint, Vitest, production build. Script: `scripts/test_string_diagram.py`. Repo structure (rosters, deliberation dirs), optional link/schema checks; methodology quality by running skills and reviewing outputs. |
+| **Where is the executable code?** | `demo/` (Next.js app), `.claude/skills/string-diagram/resource_equations_to_mermaid.py`. |
+| **Dependencies?** | Node 20+ and npm for `demo/`. Python 3.7+ (stdlib only) for the script. AI agent for skills. |
+| **CI today?** | `.github/workflows/demo-ci.yml` for `demo/`. Optional: add jobs for `scripts/test_string_diagram.py` and structure checks. |
 | **Best next evidence (from handoff)?** | Comparative evaluation (one decision, three methods, same rubric); then `/review` on methodology-adoption; then `/probe` test. |
 
 ---
@@ -183,7 +211,8 @@ It runs the converter on the three equation files in `.claude/skills/string-diag
 
 - **Handoff** — Carries "immediate next steps" (e.g. comparative evaluation, `/probe` test, quickstart update). This guide complements that by defining *how* to run and test; the handoff defines *what* to do next.
 - **gap_analysis.md** — Lists missing essays and artifacts; this guide does not duplicate that.
-- **artifacts/quick-start-guide.md** — First-run path for the methodology; this guide adds the script and testing options.
+- **artifacts/quick-start-guide.md** — First-run path for the methodology; this guide adds the script, demo, and testing options.
+- **demo/README.md** — Local install, env vars, and scripts for the interactive Next.js demo.
 - **agent/deliberations/README.md** and **agent/archive/augmentation-plan.md** — Schemas and naming for deliberation records; use them when adding structural or schema checks.
 
 This document can be updated when you add CI, tests, or new run procedures.

@@ -21,6 +21,7 @@ Cyberneutics is a methodology for working with LLMs as collaborative sense-makin
 | `meta/` | Methodology evolution, uptake tracking | Understand how the project has developed and what's been validated. Read before major planning decisions or `/committee` runs about project direction. |
 | `wild/` | Incoming ideas, external material, not yet tamed | Browse when exploring adjacent territory. Don't treat as settled. |
 | `references/` | Background reading | Find the theoretical sources cited in essays and artifacts. |
+| `demo/` | Local Next.js app (naive vs committee UI) | Run on your machine: see `demo/README.md` (Node 20+, `npm install`, `npm run setup`, `npm run dev`). |
 | `.claude/skills/` | Executable skill files for slash commands | **Read the relevant SKILL.md before invoking any slash command.** The summaries in this document tell you *when* to invoke; the SKILL.md tells you *how*. |
 
 ### `agent/` in more detail

@@ -48,6 +48,31 @@ Neither half alone is sufficient. Scenarios without a committee is storytelling 
 
 The composed operation is Bruner's binocular vision made operational: narrative mode to explore, paradigmatic mode to evaluate, composed into a single pipeline that *does the thing we actually need* — makes a decision we can trace, defend, and learn from.
 
+### Visual: first-order output vs. metacognitive output
+
+```mermaid
+flowchart TD
+    A["Situation"] --> B["Fan: scenario generation"]
+    B --> C["Funnel: adversarial deliberation"]
+
+    subgraph FIRST["First-order (what we think)"]
+        C --> D["Claims and recommendations"]
+    end
+
+    subgraph META["Second-order / metacognitive (how we know)"]
+        C --> E["Confidence level and uncertainty markers"]
+        C --> F["Provenance trail (which scenario/argument supports each commitment)"]
+        C --> G["Load-bearing assumptions"]
+        C --> H["What would change our minds (next evidence)"]
+    end
+
+    D --> I["Commitment decision"]
+    E --> I
+    F --> I
+    G --> I
+    H --> I
+```
+
 ---
 
 ## The mathematics of commitment
