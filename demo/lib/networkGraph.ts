@@ -16,12 +16,13 @@ export const FULL_POSITIONS: Record<NodeName, NodePosition> = {
   Tammy: { x: 20, y: 150 },
 };
 
+/** Live mini graph: four corners of a rectangle + center (reads as a box, not a ring). */
 export const MINI_POSITIONS: Record<NodeName, NodePosition> = {
-  Maya: { x: 120, y: 38 },
-  Frankie: { x: 210, y: 118 },
-  Joe: { x: 180, y: 248 },
-  Vic: { x: 60, y: 248 },
-  Tammy: { x: 30, y: 118 },
+  Maya: { x: 45, y: 55 },
+  Frankie: { x: 195, y: 55 },
+  Tammy: { x: 45, y: 265 },
+  Vic: { x: 195, y: 265 },
+  Joe: { x: 120, y: 160 },
 };
 
 export const RESEARCH_RUNNING_FILL = "#8b5cf6";
