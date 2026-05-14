@@ -32,6 +32,17 @@ actualizes a different trajectory — and the differences reveal structure.
 - When the user wants to know: "Would we reach the same conclusion if
   we ran this again?"
 
+## Panic stop (`/stop`)
+
+The user can say `/stop`, "stop", "halt", or "that's enough" at any point during a probe. When you see this signal:
+
+1. **Stop generating immediately.** Do not start the next run.
+2. **If mid-run**: Finish the current file cleanly if nearly done, otherwise abandon the incomplete run. Mark it with `<!-- stopped by user -->`.
+3. **If between runs**: The completed runs stand. Do not start the next run.
+4. **Salvage what you can**: If 2+ runs are complete, generate the variance report and landscape map from those runs (note the reduced N). If only 1 run is complete, present that run's resolution as a single data point — no variance analysis is possible.
+5. **Present a status summary**: which runs completed, which was interrupted, what the probe found so far.
+6. **Do not suggest continuing.** The user stopped for a reason.
+
 ## When NOT to use
 
 - The decision is low-stakes or time-sensitive → single `/committee` or
@@ -65,6 +76,44 @@ When invoked, the skill:
 4. **Synthesizes the variance report** into a decision landscape map
 5. **Presents findings** to the user: what's stable, what's variable,
    what's load-bearing
+
+## Checkpoint model (REQUIRED)
+
+**After each run completes, STOP and show the user where they are.** The user decides whether to continue to the next run.
+
+### After each run, display:
+
+```
+==== probe: run [N] of [TOTAL] complete | [mode] ====
+
+Completed runs: [N]
+Remaining: [TOTAL - N]
+Continue to next run? (yes / no / done)
+```
+
+### At completion (all runs done), display:
+
+```
+==== probe complete | [N] runs finished ====
+
+Generating variance report and landscape map.
+Record: agent/probes/<topic-slug>/
+```
+
+### If stopped early with 2+ runs complete:
+
+```
+==== probe stopped | [N] of [TOTAL] runs complete ====
+
+Generating variance report from available runs.
+Record: agent/probes/<topic-slug>/
+```
+
+### Rules
+
+- **NEVER auto-chain** from one run to the next. Show the checkpoint after each run.
+- If the user says "run all" or gives blanket permission, proceed but still show each checkpoint banner so they can see progress and use Cursor's stop button.
+- The checkpoint banner must appear in your response text, not in a file.
 
 ### Run independence
 

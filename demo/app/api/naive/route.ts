@@ -28,6 +28,7 @@ export async function POST(req: Request) {
             for (const chunk of text.match(/.{1,30}/g) ?? [text]) {
               controller.enqueue(encoder.encode(chunk));
             }
+            controller.close();
             return;
           }
 
@@ -44,12 +45,9 @@ export async function POST(req: Request) {
               controller.enqueue(encoder.encode(chunk.delta.text));
             }
           }
-        } catch (error) {
-          controller.enqueue(
-            encoder.encode(`\n\n[Naive call failed: ${(error as Error).message ?? "Unknown error"}]`),
-          );
-        } finally {
           controller.close();
+        } catch (error) {
+          controller.error(error);
         }
       },
     });

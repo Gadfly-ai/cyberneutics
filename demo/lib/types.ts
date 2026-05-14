@@ -72,6 +72,7 @@ export interface EvaluationResult {
 }
 
 export type RunSource = "LOCAL" | "API";
+export type RunKind = "single" | "batch" | "auto_resolve" | "self_improvement";
 
 export interface RunSnapshot {
   id: string;
@@ -90,6 +91,17 @@ export interface RunSnapshot {
   majorityBefore: string;
   majorityAfter: string;
   executionSource: RunSource;
+  runKind?: RunKind;
+  /** Config at run time (optional for snapshots stored before this field existed). */
+  deliberationRoundsConfigured?: number;
+  adaptiveDepth?: boolean;
+  naiveKeyFinding?: string;
+  committeeKeyFinding?: string;
+  naiveOutputExcerpt?: string;
+  committeeTranscriptExcerpt?: string;
+  /** 1-based index within a batch run; null when not part of a batch. */
+  batchIndex?: number | null;
+  batchTotal?: number | null;
 }
 
 export interface ConfidenceMetrics {

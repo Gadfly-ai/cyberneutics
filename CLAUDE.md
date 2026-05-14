@@ -63,6 +63,17 @@ Six slash commands are available. **Before invoking any skill, read its SKILL.md
 | `/review` | `.claude/skills/review/SKILL.md` | After any `/committee` run — evaluates the transcript against five rubrics, closes the feedback loop |
 | `/handoff` | `.claude/skills/handoff/SKILL.md` | End of a significant session, before a break, after major milestones |
 | `/string-diagram` | `.claude/skills/string-diagram/SKILL.md` | User describes a pipeline or workflow that could be formalized as resource equations. Supports `{spider: fan/funnel}` annotations for fan/funnel topology. |
+| `/stop` | *(recognized by all skills)* | **Panic stop.** Immediately halts any running skill. The agent stops generating, finishes the current file cleanly, presents what's complete, and does not suggest continuing. Works during `/committee`, `/review`, `/scenarios`, and `/probe`. |
+
+## Pipeline checkpoint model
+
+**Every step in the feedback loop is a checkpoint.** The agent completes one step (deliberation, evaluation, or remediation), shows a status banner with the score and what comes next, then **stops and waits for the user to say "continue" or "done."** The agent never auto-chains to the next step.
+
+The user has two ways to stop:
+1. **At a checkpoint** — say "done", "no", or just don't respond. The process stops cleanly between steps.
+2. **Mid-step** — use Cursor's stop button (square icon in chat) or type `/stop` to halt mid-generation.
+
+If the user says "run until resolved" or gives blanket permission, the agent may proceed through multiple steps but **still shows each checkpoint banner** so the user can see progress and break out at any time.
 
 ## Core ideas
 

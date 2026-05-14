@@ -7,6 +7,8 @@ This folder is a **local-only** web app. It shows the same question answered two
 
 That contrast is the heart of [adversarial committees](../artifacts/adversarial-committees.md) in the main repo. If you are new to the ideas, read [Start here](../artifacts/start-here.md) first; this demo is a **hands-on companion**, not a substitute for the methodology write-ups.
 
+**Run mode is part of the contract.** Every metric and chart is computed from whatever this run actually produced: **local** mode uses fixed scripts in `lib/localDemo.ts`, so the same question yields the same transcript, scores, and keyword-derived signals (for example metacognition counts) on every run—batch mode repeats that identical outcome. **API** mode calls Claude, so outputs and scores can vary between runs; batch mode then measures real stochastic variance. Interpreting “stability,” trends, or deltas without checking whether runs were local or API is misleading. Use local to learn the UI and code paths offline; use API when you care about live model behavior.
+
 **Stance:** The repo is here so you can **read** and **run** the work yourself—including this demo. It is **not** set up around an open-contribution or maintainer workflow. If something is unclear or broken while you use the app, feedback is still welcome.
 
 ---
@@ -66,6 +68,7 @@ Open [http://localhost:3000](http://localhost:3000).
 - **`npm run setup`** creates `demo/.env.local` from `.env.example` if it does not exist. Skip if you already use `.env.local`.
 - **No API key:** The app still runs. “Auto” execution uses **deterministic local text** (no network calls to Anthropic).
 - **With API key:** Add `ANTHROPIC_API_KEY` to `.env.local` and restart the dev server for **live** Claude calls.
+- **Prefer the terminal?** Run `npm run tour` for a guided walkthrough of each pipeline stage with pointers to the files you would modify to extend the system. See [Scripts](#scripts) for options.
 
 ---
 
@@ -97,8 +100,8 @@ Short definitions for reading the UI and the code. (The in-app **About this demo
 | **Character / roster** | Fixed personas (Maya, Frankie, Joe, Vic, Tammy), each with a **system prompt** in `lib/characters.ts`. |
 | **Research (API only)** | Before round one, each character can run a **research** step (`lib/research.ts`). Local demo **skips** this and uses canned round-one lines. |
 | **Server-Sent Events (SSE)** | HTTP streaming format for **`POST /api/committee`**: the server pushes **events** (phase, character chunks, done) so text appears incrementally. |
-| **Execution mode** | **`auto`**, **`local`**, or **`api`**: whether a run uses in-repo demo logic or **Anthropic** (`lib/executionMode.ts`). |
-| **Local demo** | Deterministic transcripts and evaluation-shaped JSON in **`lib/localDemo.ts`**—no API key required when `auto` has no key. |
+| **Execution mode** | The UI exposes **`local`** and **`api`**: whether a run uses in-repo demo logic or **Anthropic** (`lib/executionMode.ts`). The route layer also accepts **`auto`** for programmatic callers. This choice determines whether repeated runs and batch mode show **identical** outputs (local) or **variable** ones (API)—always note which mode produced the history you are reading. |
+| **Local demo** | Deterministic transcripts and evaluation-shaped JSON in **`lib/localDemo.ts`**—no API key required for UI local mode or route-level `auto` fallback. Same inputs ⇒ same metrics every time. |
 | **Evaluator / rubric** | Structured scores on a transcript (**`EvaluationResult`** in `lib/types.ts`). **`POST /api/evaluate`** returns either heuristic local scores or model-produced JSON. |
 | **Run mode (UI)** | Label in the UI for choosing local vs API **inference**; must agree with env (key present) for real API calls. |
 
@@ -145,7 +148,7 @@ flowchart TB
 
 | Mode | Behavior |
 |------|----------|
-| **`auto`** (default in the UI when offered) | If `ANTHROPIC_API_KEY` is missing **or** `LOCAL_DEMO_ONLY=1`, use local demo. Otherwise use the API. |
+| **`auto`** (route-level fallback) | If `ANTHROPIC_API_KEY` is missing **or** `LOCAL_DEMO_ONLY=1`, use local demo. Otherwise use the API. |
 | **`local`** | Always local demo (no Anthropic), even if a key is set. |
 | **`api`** | Requires `ANTHROPIC_API_KEY`; throws if missing. |
 
@@ -217,6 +220,9 @@ Copy from `.env.example` or run `npm run setup`.
 | `npm run start` | Serve production build (run `build` first) |
 | `npm run lint` | ESLint |
 | `npm test` | Vitest unit tests |
+| `npm run tour` | CLI pipeline tour: runs each stage in the terminal with extension pointers |
+| `npm run tour -- --live` | Same tour using live Anthropic API (requires `ANTHROPIC_API_KEY`) |
+| `npm run tour -- --step <name>` | Run one section only: `roster`, `naive`, `committee`, `evaluate`, or `extend` |
 
 **Production-style local run:**
 

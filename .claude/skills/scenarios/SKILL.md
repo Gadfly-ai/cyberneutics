@@ -23,6 +23,17 @@ formalized in `palgebra/duality-and-composition.md`. The convergent half is
 the committee (`/committee`). The composition — fan then funnel — is the
 **deliberated choice** pipeline.
 
+## Panic stop (`/stop`)
+
+The user can say `/stop`, "stop", "halt", or "that's enough" at any point during scenario generation. When you see this signal:
+
+1. **Stop generating immediately.** Do not start the next scenario or file.
+2. **Finish the current scenario cleanly** if mid-write — close the narrative, add a `<!-- stopped by user -->` marker, and save.
+3. **Present a status summary**: which scenarios are complete, which is partial, and what would have come next.
+4. **Do not suggest continuing.** The user stopped for a reason.
+
+Completed scenarios in 02-scenarios.md stand as-is even if the full set wasn't generated.
+
 ## When to use
 
 - User types `/scenarios [situation description]`
@@ -49,6 +60,22 @@ for domain-specific characters.
 
 If `agent/scenario-roster.md` does not exist or is unreadable, tell the user
 and stop. Do not fall back to a hardcoded roster.
+
+## Checkpoint model (REQUIRED)
+
+Scenario generation typically runs as a single step (all scenarios in one pass). Show a completion checkpoint at the end:
+
+```
+==== scenarios complete | [N] scenarios generated ====
+
+Record: agent/scenarios/<topic-slug>/
+Next step would be: /committee with scenario_context to deliberate across these futures.
+Continue? (yes / no / done)
+```
+
+**STOP and wait for the user.** Do not auto-chain into `/committee`.
+
+If the user gives blanket permission ("run the full deliberated choice"), proceed but still show the checkpoint banner. The Cursor stop button is always available mid-generation.
 
 ## What the skill does
 

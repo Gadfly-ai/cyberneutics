@@ -1,5 +1,12 @@
+import { CondorcetJuryExplorer } from "@/components/CondorcetJuryExplorer";
 import { CHARACTERS } from "@/lib/characters";
-import { buildCondorcetShift, buildMetacognitionCounts } from "@/lib/insights";
+import {
+  anyCharacterStreaming,
+  buildCondorcetShift,
+  buildMetacognitionDetail,
+  formatMetacognitionHitSummary,
+  MetacognitionRoleId,
+} from "@/lib/insights";
 import { CharacterRoundState, EvaluationResult } from "@/lib/types";
 
 interface CalculationExplainerProps {
@@ -14,6 +21,7 @@ interface CalculationExplainerProps {
   concernsCount: number;
   undispositionedCount: number;
   dispositionedCount: number;
+  isRunning?: boolean;
 }
 
 const metaKeywordLabels: Record<string, string> = {
@@ -71,17 +79,28 @@ export function CalculationExplainer({
   concernsCount,
   undispositionedCount,
   dispositionedCount,
+  isRunning = false,
 }: CalculationExplainerProps) {
   const condorcet = buildCondorcetShift(characterResponses);
   const voteShifts = condorcet.rows.filter((row) => row.changed).length;
-  const metaCounts = buildMetacognitionCounts(characterResponses);
-  const totalMeta = Object.values(metaCounts).reduce((sum, value) => sum + value, 0);
-  const metaRows = CHARACTERS.map((character) => ({
-    id: character.id,
-    name: character.name,
-    hex: character.accentHex,
-    count: metaCounts[character.id as keyof typeof metaCounts],
-  })).sort((a, b) => b.count - a.count);
+  const streaming = anyCharacterStreaming(characterResponses);
+  const r1Provisional = currentPhase === 1 && streaming;
+  const finalProvisional = currentPhase >= 2 && streaming;
+  const metaDetail = buildMetacognitionDetail(characterResponses);
+  const totalMeta = Object.values(metaDetail).reduce((sum, role) => sum + role.total, 0);
+  const metaRows = CHARACTERS.map((character) => {
+    const role = character.id as MetacognitionRoleId;
+    const d = metaDetail[role];
+    return {
+      id: character.id,
+      name: character.name,
+      hex: character.accentHex,
+      count: d.total,
+      hitSummary: formatMetacognitionHitSummary(d.hits),
+      r1Summary: formatMetacognitionHitSummary(d.round1.hits),
+      r2Summary: formatMetacognitionHitSummary(d.round2.hits),
+    };
+  }).sort((a, b) => b.count - a.count);
   const completionRate = concernsCount === 0 ? 1 : dispositionedCount / concernsCount;
 
   return (
@@ -152,12 +171,34 @@ export function CalculationExplainer({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Vote shift calculation
+                Vote shift calculation (inferred vote lens)
               </div>
               <p className="mt-1 text-xs text-slate-700">
-                Round 1 majority: <span className="font-semibold">{condorcet.majorityBefore}</span>{" "}
-                to final majority: <span className="font-semibold">{condorcet.majorityAfter}</span>, with{" "}
-                <span className="font-semibold tabular-nums">{voteShifts}</span> shifted roles.
+                Round 1 majority: <span className="font-semibold">{condorcet.majorityBefore}</span>
+                {r1Provisional ? " (provisional while streaming)" : ""} · tallies A
+                <span className="tabular-nums">{condorcet.tallyBefore.aye}</span> N
+                <span className="tabular-nums">{condorcet.tallyBefore.nay}</span> ?
+                <span className="tabular-nums">{condorcet.tallyBefore.undetermined}</span> · margin{" "}
+                <span className="tabular-nums">{condorcet.marginBefore}</span>
+                <br />
+                Cross-exam majority: <span className="font-semibold">{condorcet.majorityAfter}</span>
+                {finalProvisional ? " (provisional while streaming)" : ""} · tallies A
+                <span className="tabular-nums">{condorcet.tallyAfter.aye}</span> N
+                <span className="tabular-nums">{condorcet.tallyAfter.nay}</span> ?
+                <span className="tabular-nums">{condorcet.tallyAfter.undetermined}</span> · margin{" "}
+                <span className="tabular-nums">{condorcet.marginAfter}</span>
+                <br />
+                <span className="font-semibold tabular-nums">{voteShifts}</span> role
+                {voteShifts === 1 ? "" : "s"} shifted
+                {condorcet.meaningfulDifference ? (
+                  <span className="font-medium text-amber-800"> · majority flipped</span>
+                ) : null}
+                {r1Provisional || finalProvisional ? (
+                  <span className="font-medium text-amber-800"> · live inference updating</span>
+                ) : null}
+                {isRunning && !streaming ? (
+                  <span className="text-slate-600"> · between streaming turns</span>
+                ) : null}
               </p>
             </div>
             <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-700">
@@ -200,6 +241,8 @@ majority = count(Aye) > count(Nay) ? Aye
          : count(Nay) > count(Aye) ? Nay
          : Undetermined`}</AlgorithmBlock>
           </div>
+
+          <CondorcetJuryExplorer />
         </section>
 
         <div className="grid gap-3 lg:grid-cols-2">
@@ -254,6 +297,12 @@ runs mean = average(committee scores for this question)`}</AlgorithmBlock>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               Metacognition proxy
             </div>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Per-role counts use the regexes below. <span className="font-medium text-slate-600">Matched</span>{" "}
+              aggregates both rounds; <span className="font-medium text-slate-600">R1</span> /{" "}
+              <span className="font-medium text-slate-600">R2</span> lines show the pressure pattern (where
+              keywords appeared) per phase.
+            </p>
             <div className="mt-2 flex h-3 overflow-hidden rounded bg-slate-200">
               {metaRows
                 .filter((row) => row.count > 0)
@@ -268,13 +317,26 @@ runs mean = average(committee scores for this question)`}</AlgorithmBlock>
                   />
                 ))}
             </div>
-            <div className="mt-3 space-y-1.5">
+            <div className="mt-3 space-y-2">
               {metaRows.map((row) => (
-                <div key={row.id} className="flex items-center gap-2 text-xs">
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: row.hex }} />
-                  <span className="w-14 font-semibold text-slate-800">{row.name}</span>
-                  <span className="w-6 tabular-nums text-slate-900">{row.count}</span>
-                  <span className="text-slate-500">{metaKeywordLabels[row.id]}</span>
+                <div key={row.id} className="text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row.hex }} />
+                    <span className="w-14 shrink-0 font-semibold text-slate-800">{row.name}</span>
+                    <span className="w-6 shrink-0 tabular-nums text-slate-900">{row.count}</span>
+                    <span className="min-w-0 text-slate-500">{metaKeywordLabels[row.id]}</span>
+                  </div>
+                  <div className="mt-0.5 pl-6 text-[11px] text-slate-500">
+                    <span className="font-medium text-slate-600">Matched: </span>
+                    {row.hitSummary}
+                  </div>
+                  <div className="mt-0.5 pl-6 text-[10px] leading-snug text-slate-500">
+                    <span className="font-medium text-slate-600">R1: </span>
+                    {row.r1Summary}
+                    <span className="text-slate-400"> · </span>
+                    <span className="font-medium text-slate-600">R2: </span>
+                    {row.r2Summary}
+                  </div>
                 </div>
               ))}
             </div>
@@ -288,8 +350,8 @@ bar width here = role count / total count
 maya    = /\b(incentive|benefit|insulated|governance|power)\b/g
 frankie = /\b(value|ethical|dignity|harm|legitimacy)\b/g
 joe     = /\b(before|precedent|history|memory|tried)\b/g
-vic     = /\b(evidence|falsif|base rate|test|measur)\b/g
-tammy   = /\b(feedback|second-order|system|loop|atrophy)\b/g`}</AlgorithmBlock>
+vic     = /\b(evidence|falsif\w*|falsification|base rate|test|measur\w*)\b/g
+tammy   = /\b(feedback|second[- ]order|system|loop|atrophy)\b/g`}</AlgorithmBlock>
             </div>
           </section>
         </div>

@@ -1,8 +1,8 @@
 # Condorcet's Jury Theorem and the Committee
 
-This document clarifies the relationship between the Cyberneutics adversarial committee process and **Condorcet's jury theorem** (CJT). It states our design goals first, then introduces CJT as a motivating analogy, lists where our process does *not* satisfy the theorem's conditions, and states that a CJT-compliant variant would be a different pipeline — not a modification of this one.
+This document clarifies the relationship between the Cyberneutics adversarial committee process and **Condorcet's jury theorem** (CJT). It states our design goals first, then introduces CJT as a motivating analogy, lists where our process does *not* satisfy the theorem's conditions, identifies what *does* theoretically ground our design, and states that a CJT-compliant variant would be a different pipeline — not a modification of this one.
 
-**We do not satisfy Condorcet's jury theorem.** Our process is deliberative and dependent by design. This artifact documents that relationship so users and reviewers are not misled.
+**We do not satisfy Condorcet's jury theorem.** Our process is deliberative and dependent by design. This artifact documents that relationship — and points to the theoretical traditions that *do* apply — so users and reviewers are not misled.
 
 ---
 
@@ -82,25 +82,20 @@ flowchart LR
         I5 --> IV
     end
 
-    subgraph DEP["Deliberative dependence (committee design)"]
-        M["Maya"]
-        F["Frankie"]
-        J["Joe"]
-        V["Vic"]
-        R["Rae"]
-        OUT["Resolution + map"]
-        M <--> F
-        F <--> J
-        J <--> V
-        V <--> R
-        R <--> M
-        M --> OUT
-        F --> OUT
-        J --> OUT
-        V --> OUT
-        R --> OUT
+    subgraph DEP["Sequential deliberative dependence (committee design)"]
+        direction TB
+        subgraph R1["Round 1: Opening statements"]
+            M1["Maya"] ~~~ F1["Frankie"] ~~~ J1["Joe"] ~~~ V1["Vic"] ~~~ T1["Tammy"]
+        end
+        subgraph R2["Round 2: Challenge & response"]
+            M2["Maya"] ~~~ F2["Frankie"] ~~~ J2["Joe"] ~~~ V2["Vic"] ~~~ T2["Tammy"]
+        end
+        R1 -->|"each reads all<br/>prior statements"| R2
+        R2 --> OUT["Resolution + map"]
     end
 ```
+
+The CJT topology is a **fan** (parallel, independent) into an aggregation node. The committee topology is a **sequential pipeline with feedback** — each round's output becomes the next round's input. Dependence is not a defect; it is the mechanism. For the formal treatment of this topology as resource equations, see [committee-as-palgebra.md](../palgebra/committee-as-palgebra.md).
 
 ### Visual 3: User-state delta
 
@@ -128,7 +123,35 @@ flowchart LR
 
 ---
 
-## 4. A CJT-compliant variant would be a different pipeline
+## 4. What *does* theoretically ground our design
+
+CJT is the wrong theorem for what we do. But "not CJT" does not mean "no theoretical basis." Three bodies of work are closer to the committee's actual mechanism:
+
+### Diversity trumps ability (Hong & Page, 2004)
+
+Hong and Page proved that **groups of diverse problem-solvers outperform groups of high-ability problem-solvers** on complex problems, provided the problem is hard enough and the group is large enough. Critically, their result **does not require independence** — agents interact with a shared problem landscape. What matters is that their heuristics (search strategies) are *different*, not that they are *isolated*.
+
+This is close to what the committee does: five characters with **incompatible propensities** (paranoid realism, evidence prosecution, institutional memory, values advocacy, systems thinking) search the decision space using different heuristics. The value comes from the **diversity of search strategies**, not from independence of error.
+
+### Deliberative democracy (Habermas, 1996; Fishkin, 2009)
+
+The political-theory tradition of deliberative democracy argues that group decisions improve through **structured argumentation under procedural constraints** — not through aggregating pre-formed preferences. Fishkin's empirical work on Deliberative Polling shows that informed, structured deliberation produces better-calibrated preferences than raw aggregation, precisely because participants **update in response to each other's arguments**.
+
+The committee process operationalizes this: Robert's Rules as procedural constraint, structured rounds, challenge-and-response protocol. Dependence (reading and responding to each other) is the source of quality, not a contamination to be avoided.
+
+### Adversarial collaboration (Kahneman & Klein, 2009; Tetlock, 2005)
+
+The practice of adversarial collaboration — where researchers who disagree on a prediction design a joint study to resolve the disagreement — has been shown to produce sharper hypotheses and more actionable experiments than either side working alone. The committee generalizes this: five characters with structurally incompatible commitments are **forced to confront each other's best arguments**, surfacing load-bearing assumptions that lone analysis would leave implicit.
+
+### Where independence *does* apply: the evaluation step
+
+The committee deliberately sacrifices independence during **generation** (deliberation). But the methodology recovers a form of independence at **evaluation**: the [independent evaluation protocol](independent-evaluation.md) passes the transcript to a **fresh model instance** with no conversation history and no knowledge of the generation process. This evaluator judges the output against explicit rubrics without investment in its coherence.
+
+This is structurally analogous to CJT's setup: an independent observer making a judgment without correlated error. The methodology applies the independence principle where it is productive (evaluation of output quality) and uses deliberative dependence where *that* is productive (generation of the decision-space map). The two mechanisms are complementary, not competing.
+
+---
+
+## 5. A CJT-compliant variant would be a different pipeline
 
 A pipeline that *did* aim to satisfy (or approximate) CJT would look different:
 
@@ -141,17 +164,40 @@ That pipeline would be a **different design** — not a "correction" or tweak to
 - Contributors who want to explore a CJT-style design can build it as a separate pipeline and compare it to the deliberative one.
 - Users do not assume our committee "satisfies" or "corrects for" Condorcet; we clarify and document the relationship instead.
 
-If evidence later emerges from comparing a deliberative pipeline to an independent-aggregation pipeline (e.g. on the same rubric), that could inform whether to offer both variants or revisit this document.
+If evidence later emerges from comparing a deliberative pipeline to an independent-aggregation pipeline, that could inform whether to offer both variants or revisit this document.
+
+### Sketch: a comparison protocol
+
+A fair comparison would hold the question, the model, and the evaluation rubric constant, then vary only the pipeline topology:
+
+1. **Deliberative arm:** Standard committee run — charter, roster, multi-round deliberation, resolution + map, independent evaluation.
+2. **Independent-aggregation arm:** Same five characters produce opening statements **in isolation** (no cross-reading). A sixth call aggregates by majority or supermajority into a single verdict. Same independent evaluation.
+3. **Shared rubric:** Score both outputs on the five committee rubric dimensions (reasoning completeness, adversarial rigor, assumption surfacing, evidence standards, trade-off explicitness) plus a sixth: **verdict accuracy** where ground truth is available.
+4. **Repeat:** Run both arms on the same set of questions (minimum 10–20) to get distributional rather than anecdotal evidence.
+
+The expected trade-off: the independent arm should produce higher agreement when there is a clear "correct" answer (CJT's strength), while the deliberative arm should produce richer maps and better-surfaced assumptions (its design purpose). This is not a competition but a characterization of where each topology performs.
 
 ---
 
-## 5. References
+## 6. References
+
+### Condorcet and extensions
 
 - **Condorcet, M. de** (1785). *Essai sur l'application de l'analyse à la probabilité des décisions rendues à la pluralité des voix.* (Essay on the application of analysis to the probability of majority decisions.)
 - **Berend, D., & Paroush, J.** (1998). When is Condorcet's Jury Theorem valid? *Social Choice and Welfare*, 15(4), 481–488. (Heterogeneous competence.)
 - **Romaniega Sancho, Á.** (2022). On the probability of the Condorcet Jury Theorem or the Miracle of Aggregation. *Mathematical Social Sciences*, 119, 41–55. (Prior probability of CJT holding without evidence of competence.)
 
-For further reading, see the Wikipedia article on [Condorcet's jury theorem](https://en.wikipedia.org/wiki/Condorcet%27s_jury_theorem) and the repository's [references](../references/README.md) and [adversarial committees](adversarial-committees.md) artifact.
+### Diversity and group problem-solving
+
+- **Hong, L., & Page, S. E.** (2004). Groups of diverse problem solvers can outperform groups of high-ability problem solvers. *Proceedings of the National Academy of Sciences*, 101(46), 16385–16389. (Diversity of heuristics outperforms individual ability on complex problems; does not require independence.)
+
+### Deliberative democracy and adversarial collaboration
+
+- **Habermas, J.** (1996). *Between Facts and Norms: Contributions to a Discourse Theory of Law and Democracy.* MIT Press. (Procedurally constrained argumentation as a source of legitimacy and quality.)
+- **Fishkin, J. S.** (2009). *When the People Speak: Deliberative Democracy and Public Consultation.* Oxford University Press. (Empirical evidence that structured deliberation produces better-calibrated group judgments than raw aggregation.)
+- **Kahneman, D., & Klein, G.** (2009). Conditions for intuitive expertise: A failure to disagree. *American Psychologist*, 64(6), 515–526. (Adversarial collaboration as method; structured disagreement producing sharper hypotheses.)
+
+For further reading, see the Wikipedia article on [Condorcet's jury theorem](https://en.wikipedia.org/wiki/Condorcet%27s_jury_theorem) and the repository's [references](../references/README.md), [adversarial committees](adversarial-committees.md) artifact, and [independent evaluation](independent-evaluation.md) protocol.
 
 ---
 
@@ -160,6 +206,8 @@ For further reading, see the Wikipedia article on [Condorcet's jury theorem](htt
 - **Design first:** The committee is for stress-testing and decision-space mapping, not for aggregating independent votes.
 - **CJT as analogy:** The theorem motivates the intuition that multiple perspectives can help; we do not implement its conditions.
 - **Deviations:** We do not have independence, binary correct/incorrect, or literal *p*; we document these deviations so our relationship to CJT is clear.
-- **Different pipeline:** A CJT-compliant variant would require independent generation and aggregation; that would be a different pipeline, not a correction to this one.
+- **Positive grounding:** Hong-Page diversity, deliberative democracy, and adversarial collaboration *do* theoretically support our design — and none of them require independence.
+- **Independence where it fits:** The methodology applies independence at evaluation (fresh model instance, no shared context) while using deliberative dependence at generation. The two mechanisms are complementary.
+- **Different pipeline:** A CJT-compliant variant would require independent generation and aggregation; that would be a different pipeline, not a correction to this one. A comparison protocol is sketched above for future contributors.
 
-This document clarifies and states the relationship and deviations. It does not "correct for" Condorcet; it documents where we stand.
+This document clarifies where we stand relative to Condorcet, names the theoretical traditions that *do* apply, and documents the design choices so that users and reviewers can assess both the strengths and the honest limitations of the committee process.

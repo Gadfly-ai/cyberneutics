@@ -37,6 +37,73 @@ compensates by:
 - User asks to "review the deliberation" or "evaluate the committee output"
 - After any `/committee` run, suggest: "Want me to run `/review` on this?" (the deliberation record is in agent/deliberations/<topic-slug>/)
 
+## Panic stop (`/stop`)
+
+The user can say `/stop`, "stop", "halt", or "that's enough" at any point during a review. When you see this signal:
+
+1. **Stop generating immediately.** Do not continue scoring remaining rubrics.
+2. **Present what you have**: any rubric scores completed so far, partial observations. Don't write an incomplete evaluation file — partial scores are shown inline only.
+3. **Do not suggest next steps.** The user stopped for a reason.
+
+## Checkpoint model (REQUIRED — never skip)
+
+**After completing the evaluation, STOP and wait for the user. Never auto-chain to remediation.**
+
+### Step 2: First evaluation
+
+After writing 04-evaluation-1.md, display:
+
+If **below threshold**:
+```
+==== step 2 complete: evaluation | score [SUM]/15 (threshold 13) | BELOW BAR ====
+Record: agent/deliberations/<topic-slug>/
+
+Next step would be: remediation (committee responds to the critique)
+Continue? (yes / no / done)
+```
+
+If **at or above threshold**:
+```
+==== step 2 complete: evaluation | score [SUM]/15 | PASSED ====
+Record: agent/deliberations/<topic-slug>/
+
+No remediation needed. The deliberation record is complete.
+```
+
+**Then STOP. Do not run remediation. Do not write 05. Wait for the user.**
+
+### Step 4: Second evaluation (extended pipeline)
+
+After writing 06-evaluation-2.md, display:
+
+```
+==== step 4 complete: re-evaluation | score [SUM]/15 (threshold 13) ====
+Record: agent/deliberations/<topic-slug>/
+
+Next step would be: remediation 2 (max remediation rounds: 2)
+Continue? (yes / no / done)
+```
+
+**Then STOP. Wait for the user.**
+
+### Step 6: Final evaluation (extended pipeline)
+
+After writing 08-evaluation-3.md, display:
+
+```
+==== step 6 complete: final evaluation | score [SUM]/15 ====
+Record: agent/deliberations/<topic-slug>/
+
+Pipeline finished. Max remediation rounds reached.
+```
+
+### Rules
+
+- **NEVER chain steps.** Each evaluation = one response. The user decides what happens next.
+- Show the checkpoint banner **at the end** of your response, after the full review content.
+- Always show the score and what the next step *would be* so the user can make an informed choice.
+- The Cursor stop button (square icon in the chat) is always available to kill generation mid-evaluation.
+
 ## What the skill does
 
 1. **Locates the transcript**: Either from the most recent committee deliberation in the conversation, or from user-provided text
@@ -273,36 +340,44 @@ Run full review but provide extra depth on specified rubrics.
 
 When a deliberation was saved to `agent/deliberations/<topic-slug>/`, that directory may also contain **resolution-only** evaluation: an assessment of whether the resolution (03-resolution.md) satisfies the charter (00-charter.md), *without* reading the transcript. The reviewer uses only 00-charter.md and 03-resolution.md, scores alignment_with_goal, completeness, feasibility, risk_mitigation, and writes a `resolution_evaluation` section to the same evaluation file used for transcript review (04-evaluation-1.md for first pass, or 06/08 when the feedback loop has run). The same review skill can perform this as a **second pass**: when asked to "evaluate the resolution" or "run resolution-only evaluation" for a deliberation directory, read only 00 and 03, score against the charter, and write or update that evaluation file with `resolution_evaluation`. The transcript review (five rubrics on 02-deliberation.md) is stored under `transcript_review` in the same file. See `agent/deliberations/README.md` for the schema.
 
-## Suggesting the review
-
-After any `/committee` deliberation, proactively suggest:
-
-> "Want me to run `/review` on this to check the quality? The independent evaluation can catch theatrical rigor that looks convincing but doesn't hold up."
-
-The committee always writes to `agent/deliberations/<topic-slug>/`. You can add:
-
-> "I can evaluate the transcript and write the review to 04-evaluation-1.md in that directory, or run a resolution-only evaluation (charter + resolution, no transcript)."
-
-This nudge is part of the cybernetic feedback loop — generator + evaluator in tension drives improvement.
-
 ## Integration with committee skill
 
-The review skill completes the adversarial training loop:
+The review + committee loop uses a **checkpoint model**. Every step ends with a checkpoint — the agent stops and the user decides whether to continue.
 
-1. `/committee [topic]` — generates deliberation (generator)
-2. `/review` — evaluates deliberation (discriminator)
-3. Low scores → user asks committee to address specific gaps
-4. `/review` again → checks if gaps were addressed
-5. Repeat until scores stabilize or user is satisfied
+### The pipeline (every arrow is a user decision)
 
-This is adversarial training for narrative quality. The tension between generation and evaluation drives improvement.
+```
+/committee → [checkpoint] → /review → [checkpoint] → remediation → [checkpoint] → DONE
+                  │                        │                             │
+              "continue?"            "remediate?"                  "review again?"
+                  │                        │                          (extended)
+               user says              user says
+              yes or no              yes or no
+```
+
+### Step-by-step
+
+| Step | Who runs it | Writes | Checkpoint shows |
+|------|-------------|--------|-----------------|
+| 1 | committee | 00–03 | "Next: /review. Continue?" |
+| 2 | review | 04 | Score + "Next: remediation. Continue?" (or "PASSED — done") |
+| 3 | committee | 05 | "Default pipeline complete. Review again?" |
+| 4 | review | 06 | Score + "Next: remediation 2. Continue?" |
+| 5 | committee | 07 | "Max remediation reached. Final review?" |
+| 6 | review | 08 | "Pipeline finished." |
+
+**At every checkpoint, the user can say "done" or just not respond.** The process never advances without explicit user input.
+
+### "Run until resolved"
+
+If the user says "run until resolved" or "do the whole thing" — the agent proceeds through checkpoints automatically but **still shows each checkpoint banner** so the user can see where they are. The user can hit the Cursor stop button (square icon) at any time to break out mid-generation.
 
 ## Evaluation feedback loop (remediation)
 
 - **Score:** The **sum** of the five rubric scores (0–15). Each rubric is 0–3.
 - **Threshold:** If **sum &lt; 13** (default), the deliberation is below bar. The threshold can be overridden in the convening file (01-convening.md) for that deliberation.
-- **Trigger:** After writing the evaluation file, if sum &lt; threshold, tell the user to run a **remediation** round: the committee responds to the evaluation (point-by-point), produces 05-remediation-1.md (or 07-remediation-2.md), appends to 02, and may update 03. Then run review again; it will write to 06-evaluation-2.md (or 08-evaluation-3.md).
-- **Cap:** **Max 2 remediation rounds.** After two rounds, stop even if still below threshold.
+- **Trigger:** After writing the evaluation, show the score at the checkpoint. If below threshold, the checkpoint offers remediation as the next step. The **user decides** whether to proceed.
+- **Cap:** **Max 2 remediation rounds.** After two rounds (07-remediation-2.md exists), stop even if still below threshold.
 
 ## What success looks like
 

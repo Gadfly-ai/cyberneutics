@@ -1,3 +1,4 @@
+import { RunLandscapeScatter } from "@/components/RunLandscapeScatter";
 import { AlgorithmBlock, TechnicalBreakout } from "@/components/TechnicalBreakout";
 
 interface LastRunSummary {
@@ -28,7 +29,9 @@ interface TrendPoint {
   naiveAverage: number;
   delta: number;
   metacognitionTotal: number;
+  inferredVoteShifts: number;
   majorityAfter: string;
+  executionSource: "LOCAL" | "API";
 }
 
 interface DeliberationDashboardProps {
@@ -42,6 +45,7 @@ interface DeliberationDashboardProps {
   positiveDeltaRate: number;
   averageVoteShifts: number;
   majorityStabilityRate: number;
+  majorityInstabilityFraming: boolean;
   voteSourceSummary: VoteSourceSummary;
   majorityBeforeDistribution: MajorityDistribution;
   majorityAfterDistribution: MajorityDistribution;
@@ -57,22 +61,6 @@ function formatRecommendation(majorityAfter: string): string {
   return "Decision remains undetermined";
 }
 
-function buildSparklinePoints(values: number[], width = 220, height = 42): string {
-  if (values.length === 0) return "";
-  if (values.length === 1) return `0,${height / 2} ${width},${height / 2}`;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  return values
-    .map((value, idx) => {
-      const x = (idx / (values.length - 1)) * width;
-      const normalizedY = (value - min) / range;
-      const y = height - normalizedY * height;
-      return `${x.toFixed(2)},${y.toFixed(2)}`;
-    })
-    .join(" ");
-}
-
 export function DeliberationDashboard({
   question,
   runCount,
@@ -84,6 +72,7 @@ export function DeliberationDashboard({
   positiveDeltaRate,
   averageVoteShifts,
   majorityStabilityRate,
+  majorityInstabilityFraming,
   voteSourceSummary,
   majorityBeforeDistribution,
   majorityAfterDistribution,
@@ -93,6 +82,10 @@ export function DeliberationDashboard({
   lastRun,
 }: DeliberationDashboardProps) {
   const hasData = runCount > 0;
+  const majorityOutcomeLabel = majorityInstabilityFraming ? "Majority Instability" : "Majority Stability";
+  const majorityOutcomePercent = majorityInstabilityFraming
+    ? (1 - majorityStabilityRate) * 100
+    : majorityStabilityRate * 100;
   const recommendation = lastRun ? formatRecommendation(lastRun.majorityAfter) : "Run analysis to generate a recommendation";
   const confidence =
     runCount < 2
@@ -117,10 +110,28 @@ export function DeliberationDashboard({
     firstTrend && lastTrend ? lastTrend.committeeAverage - firstTrend.committeeAverage : 0;
   const metacognitionTrend =
     firstTrend && lastTrend ? lastTrend.metacognitionTotal - firstTrend.metacognitionTotal : 0;
-  const confidenceSeries = trendPoints.map((point) => point.committeeAverage);
-  const metacognitionSeries = trendPoints.map((point) => point.metacognitionTotal);
-  const confidenceSparkline = buildSparklinePoints(confidenceSeries);
-  const metacognitionSparkline = buildSparklinePoints(metacognitionSeries);
+  const hasTrendData = trendPoints.length >= 2;
+  const sourceCounts = trendPoints.reduce(
+    (acc, point) => {
+      acc[point.executionSource] += 1;
+      return acc;
+    },
+    { LOCAL: 0, API: 0 },
+  );
+  const sourceGuidance =
+    trendPoints.length === 0
+      ? null
+      : sourceCounts.LOCAL > 0 && sourceCounts.API > 0
+        ? "This evidence set mixes local simulator and API runs. Clear runs for this question before comparing live API variance."
+        : sourceCounts.LOCAL > 0
+          ? "These are local simulator runs, so repeated batches are intentionally deterministic. Switch to API mode for live variation."
+          : "These are API runs, so repeated batches test live model/evaluator variation for this question.";
+  const trendGuidance =
+    trendPoints.length === 0
+      ? "Run a comparison to start collecting cross-run evidence."
+      : hasTrendData
+        ? "Trend compares the latest run with the first stored run for this question."
+        : "One run is a snapshot, not a trend. Run the same question again to see whether the signal moves.";
 
   const narrativeSteps = hasData
     ? [
@@ -214,9 +225,9 @@ sparkline y = height - ((value - min(series)) / range(series)) * height`}</Algor
           <div className="text-xs text-slate-600">committee minus naive average</div>
         </div>
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Majority Stability</div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">{majorityOutcomeLabel}</div>
           <div className="mt-1 text-lg font-semibold text-slate-900">
-            {(majorityStabilityRate * 100).toFixed(0)}%
+            {majorityOutcomePercent.toFixed(0)}%
           </div>
           <div className="text-xs text-slate-600">{convergenceLabel}</div>
         </div>
@@ -256,6 +267,11 @@ sparkline y = height - ((value - min(series)) / range(series)) * height`}</Algor
           ) : null}
         </article>
       </div>
+
+      <RunLandscapeScatter
+        points={trendPoints}
+        className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3"
+      />
 
       <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
         <h3 className="text-sm font-semibold text-slate-900">Majority Distribution Across Runs</h3>
@@ -302,44 +318,36 @@ sparkline y = height - ((value - min(series)) / range(series)) * height`}</Algor
         </div>
       </div>
 
-      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+      <div id="decision-dashboard-deep" className="mt-4 scroll-mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
         <h3 className="text-sm font-semibold text-slate-900">Learning Signal Across Runs</h3>
         <p className="mt-1 text-xs text-slate-600">
-          Confidence proxy trend (committee average): {confidenceTrend >= 0 ? "+" : ""}
-          {confidenceTrend.toFixed(2)} | Metacognition trend (keyword pressure):{" "}
-          {metacognitionTrend >= 0 ? "+" : ""}
-          {metacognitionTrend}
+          At-a-glance sparklines for committee average and metacognition live in the{" "}
+          <a href="#observability-dock" className="font-medium text-sky-700 underline-offset-2 hover:underline">
+            observability dock
+          </a>
+          . This section keeps the numeric trend summary and full run table.
         </p>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <div className="rounded border border-slate-200 bg-white p-2">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-              Confidence Sparkline
-            </div>
-            <svg viewBox="0 0 220 42" className="h-12 w-full">
-              <polyline
-                fill="none"
-                stroke="#0ea5e9"
-                strokeWidth="2"
-                points={confidenceSparkline || "0,21 220,21"}
-              />
-            </svg>
-            <div className="text-[11px] text-slate-500">Series: committee evaluator average by run</div>
-          </div>
-          <div className="rounded border border-slate-200 bg-white p-2">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-              Metacognition Sparkline
-            </div>
-            <svg viewBox="0 0 220 42" className="h-12 w-full">
-              <polyline
-                fill="none"
-                stroke="#8b5cf6"
-                strokeWidth="2"
-                points={metacognitionSparkline || "0,21 220,21"}
-              />
-            </svg>
-            <div className="text-[11px] text-slate-500">Series: metacognition keyword pressure by run</div>
-          </div>
-        </div>
+        <p className="mt-1 text-xs text-slate-600">
+          {hasTrendData ? (
+            <>
+              Confidence proxy trend (committee average): {confidenceTrend >= 0 ? "+" : ""}
+              {confidenceTrend.toFixed(2)} | Metacognition trend (keyword pressure):{" "}
+              {metacognitionTrend >= 0 ? "+" : ""}
+              {metacognitionTrend}
+            </>
+          ) : (
+            "Trend needs at least two runs for the same question."
+          )}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          {trendGuidance} Learning here means accumulating evidence across independent runs, not changing model
+          weights or memory.
+        </p>
+        {sourceGuidance ? (
+          <p className="mt-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+            {sourceGuidance}
+          </p>
+        ) : null}
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[560px] border-collapse text-xs">
             <thead>
@@ -349,13 +357,15 @@ sparkline y = height - ((value - min(series)) / range(series)) * height`}</Algor
                 <th className="border-b border-slate-200 px-2 py-1">Naive Avg</th>
                 <th className="border-b border-slate-200 px-2 py-1">Delta</th>
                 <th className="border-b border-slate-200 px-2 py-1">Metacognition</th>
+                <th className="border-b border-slate-200 px-2 py-1">Vote shifts</th>
                 <th className="border-b border-slate-200 px-2 py-1">Final Majority</th>
+                <th className="border-b border-slate-200 px-2 py-1">Source</th>
               </tr>
             </thead>
             <tbody>
               {trendPoints.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-2 py-2 text-slate-600">
+                  <td colSpan={8} className="px-2 py-2 text-slate-600">
                     No run history yet. Run batch mode to surface trend evidence.
                   </td>
                 </tr>
@@ -374,7 +384,9 @@ sparkline y = height - ((value - min(series)) / range(series)) * height`}</Algor
                       {point.delta.toFixed(2)}
                     </td>
                     <td className="border-b border-slate-200 px-2 py-1">{point.metacognitionTotal}</td>
+                    <td className="border-b border-slate-200 px-2 py-1">{point.inferredVoteShifts}</td>
                     <td className="border-b border-slate-200 px-2 py-1">{point.majorityAfter}</td>
+                    <td className="border-b border-slate-200 px-2 py-1">{point.executionSource}</td>
                   </tr>
                 ))
               )}

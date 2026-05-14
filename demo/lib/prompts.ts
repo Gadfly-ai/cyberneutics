@@ -1,3 +1,9 @@
+/** Last line is parsed by `voteInference.ts` as a declared vote (demo analytics). */
+export const COMMITTEE_VOTE_FOOTER = `Required last line of your reply (exactly one line; nothing after it). Use exactly one of these verbatim:
+Current vote: Aye
+Current vote: Nay
+Current vote: Undetermined`;
+
 export const NAIVE_SYSTEM_PROMPT = `You are a helpful AI assistant. Answer the question clearly and directly.
 Provide your best analysis. Be thorough but concise.`;
 
@@ -49,6 +55,7 @@ Instructions:
 2. Clearly separate observed evidence from your inference.
 3. Name one assumption that, if false, would change your recommendation.
 4. Stay in character and commit to Aye, Nay, or Undetermined.
+5. ${COMMITTEE_VOTE_FOOTER}
 
 Max 220 words.`;
 
@@ -58,6 +65,7 @@ You have read all five initial responses. Now engage with the debate:
 1. Address at least one other committee member by name. Challenge a specific claim they made, OR explicitly concede a point while explaining what you're updating.
 2. Deepen your own analysis based on what you've heard.
 3. Identify the most important tension or trade-off the committee has surfaced so far.
+4. ${COMMITTEE_VOTE_FOOTER}
 
 Stay in character. Be genuinely adversarial where warranted. Do not perform politeness.
 Max 180 words.`;
@@ -66,8 +74,9 @@ export const buildFollowupDeliberationPrompt = (characterName: string, roundNumb
 
 You have already completed earlier rounds. Continue the debate with explicit updates:
 1. Address at least one other committee member by name, and either challenge or concede a specific claim.
-2. State whether your vote is now Aye, Nay, or Undetermined, and explain why.
+2. State whether your vote is now Aye, Nay, or Undetermined, and explain why (before the final line).
 3. Name one unresolved assumption that still blocks confident commitment.
+4. ${COMMITTEE_VOTE_FOOTER}
 
 Stay in character. Be adversarial where warranted, but concrete.
 Max 180 words.`;
@@ -114,10 +123,14 @@ export interface PresetQuestion {
     | "Operations"
     | "Research"
     | "Policy"
-    | "Philosophy";
+    | "Philosophy"
+    | "Meta";
   label: string;
   question: string;
 }
+
+export const SELF_IMPROVEMENT_QUESTION =
+  "Review this deliberation process itself. What structural weaknesses, blind spots, or failure modes does the committee format introduce? For each concern, propose a concrete improvement and identify what evidence would tell you the improvement worked. Vote Aye if the process is already adequate, Nay if it needs structural changes before it can be trusted.";
 
 export const PRESET_QUESTIONS = [
   {
@@ -173,5 +186,10 @@ export const PRESET_QUESTIONS = [
     label: "Philosophy: meaning of life",
     question:
       "What is the meaning of life, and how should that answer change the way we make everyday decisions?",
+  },
+  {
+    category: "Meta",
+    label: "Meta: self-improve this process",
+    question: SELF_IMPROVEMENT_QUESTION,
   },
 ] as const satisfies readonly PresetQuestion[];

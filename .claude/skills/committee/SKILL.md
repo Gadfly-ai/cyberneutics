@@ -4,7 +4,7 @@ description: >
   Run an adversarial committee deliberation using the roster defined in
   agent/roster.md to explore decision spaces, surface assumptions,
   and map trade-offs. Every run writes a deliberation record to
-  agent/deliberations/<topic-slug>/ (00–04 files). Use when the user types
+  agent/deliberations/<topic-slug>/ (00–03 files; review writes 04+). Use when the user types
   '/committee [topic]' or asks for a committee deliberation.
 ---
 
@@ -25,6 +25,17 @@ blind spots.
 - Situations where "what are we missing?" matters more than "what's the answer?"
 - **After `/scenarios`**: User provides `scenario_context: agent/scenarios/<topic-slug>/` to deliberate across previously generated scenarios (the deliberated choice workflow)
 
+## Panic stop (`/stop`)
+
+The user can say `/stop`, "stop", "halt", or "that's enough" at any point during a committee run or remediation cycle. When you see this signal:
+
+1. **Stop generating immediately.** Do not start the next phase or file.
+2. **Finish the current file cleanly** if you're mid-write — close any open sections, add a `<!-- stopped by user -->` marker at the end, and save.
+3. **Present a status summary**: which files are complete, which is partial, and what would have come next.
+4. **Do not suggest continuing.** The user stopped for a reason. If they want to resume later, they'll say so.
+
+If the stop arrives *between* files (e.g. after 02-deliberation.md is written but before 03-resolution.md), the completed files stand as-is. Don't create the next file.
+
 ## The Committee Roster
 
 **Read the roster from `agent/roster.md`.** That file contains the full character definitions: propensities, key questions, what each catches, failure modes, calibration examples (good/bad), interaction dynamics, and voice notes.
@@ -44,7 +55,66 @@ When invoked, the skill:
 7. **Writes 02-deliberation.md** (full transcript) and **03-resolution.md** (decision, votes, summary).
 8. **Surfaces key insights** (optionally inline): assumptions, trade-offs, evidence requirements, decision space map, recommended next steps.
 
-The canonical output is the **deliberation record directory** (00–04). The substance is not consensus—it's a **map of the decision space** showing what's at stake, what's uncertain, and what different framings reveal or obscure.
+The canonical output is the **deliberation record directory** (00–03 for the deliberation step; 04+ only after review/remediation). The substance is not consensus—it's a **map of the decision space** showing what's at stake, what's uncertain, and what different framings reveal or obscure.
+
+## Checkpoint model (REQUIRED — never skip)
+
+**Every step in the pipeline is a checkpoint. After completing a step, STOP and wait for the user. Never auto-chain to the next step.**
+
+This is the single most important behavioral rule for the committee skill. The user controls the pace. The agent does one step, shows the result, and asks whether to continue.
+
+### Step 1: Deliberation (this skill)
+
+After writing 00-charter through 03-resolution, display:
+
+```
+==== step 1 complete: deliberation (00-03) ====
+Record: agent/deliberations/<topic-slug>/
+
+Next step would be: /review (evaluate the transcript)
+Continue? (yes / no / done)
+```
+
+**Then STOP. Do not run /review. Do not write 04. Wait for the user.**
+
+### Step 2: Evaluation (review skill handles this)
+
+The review skill will show its own checkpoint. See review/SKILL.md.
+
+### Step 3: Remediation (this skill)
+
+After writing 05-remediation-1.md, display:
+
+```
+==== step 3 complete: remediation (05-remediation-1) ====
+Record: agent/deliberations/<topic-slug>/
+
+Default pipeline is now complete (00-05).
+You can request another /review cycle, or the record is done.
+```
+
+**Then STOP. Do not suggest /review. Do not write 06. Wait for the user.**
+
+### Step 5: Second remediation (this skill, extended pipeline)
+
+After writing 07-remediation-2.md, display:
+
+```
+==== step 5 complete: remediation 2 (07-remediation-2) ====
+Record: agent/deliberations/<topic-slug>/
+
+Max remediation rounds reached. You can request a final /review, or done.
+```
+
+**Then STOP.**
+
+### Rules
+
+- **NEVER chain steps.** Each step = one response. The user's next message decides what happens.
+- Show the checkpoint banner **at the end** of your response, after presenting the step's content.
+- Always show what the next step *would be* so the user can make an informed choice.
+- If the user says "run until resolved" or "do the whole pipeline" — still show checkpoints, but you may proceed if given blanket permission. Show the banner so they can see where they are and break out by not responding or saying stop.
+- The Cursor stop button (square icon in the chat) is always available to kill generation mid-step.
 
 ## Scenario-aware mode (deliberated choice)
 
@@ -226,7 +296,7 @@ The committee skill can reference (all paths under cyberneutics only):
 - **Character propensity reference**: `artifacts/character-propensity-reference.md` for detailed character calibration
 - **Setup templates**: `artifacts/committee-setup-template.md` for advanced customization
 - **Examples**: `artifacts/examples/` for precedent
-- **Deliberation record layout**: `agent/deliberations/README.md` and `agent/archive/augmentation-plan.md` for the 00–04 directory structure
+- **Deliberation record layout**: `agent/deliberations/README.md` and `agent/archive/augmentation-plan.md` for the 00–03 deliberation structure plus optional review/remediation files
 
 ## Deliberation record directory (always)
 
@@ -271,7 +341,7 @@ When the user or workflow invokes the committee for **remediation** (e.g. "commi
    - **Remediation file:** 05-remediation-1.md (or 07-remediation-2.md if 05 already exists). Content: frame the evaluation as a motion to recommit; for each recommendation in the evaluation, state accept / reject with reason / amend, and what the committee will add or change; then summarize the new round you will add.
    - **Append to 02-deliberation.md:** A new section "## Response to evaluation (motion to recommit)" and "## Round 2: [topic]" (or "Round 3" if 07-remediation-2.md). Include the committee's point-by-point response and the new round of debate addressing the evaluator's recommendations.
    - **Update 03-resolution.md** if the resolution or consensus changed.
-5. **After writing:** Suggest running `/review` again on the directory; the review skill will write to 06-evaluation-2.md (or 08-evaluation-3.md).
+5. **After writing remediation:** Show the checkpoint banner (see "Checkpoint model" section above). **STOP and wait for the user.** Do not auto-chain to /review or any other step.
 
 ## Customization options
 

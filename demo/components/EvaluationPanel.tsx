@@ -29,7 +29,10 @@ export function EvaluationPanel({
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-3 border-b border-slate-200 pb-2">
-        <h2 className="text-base font-semibold text-slate-900">
+        <h2
+          className="text-base font-semibold text-slate-900"
+          title="Five scoring dimensions: reasoning, rigor, assumptions, evidence, trade-offs — scored through the evaluator contract"
+        >
           {title}
         </h2>
         {sourceLabel ? (
@@ -45,7 +48,7 @@ export function EvaluationPanel({
 
       {evaluation ? (
         <>
-          <TechnicalBreakout className="mb-4 bg-slate-50" title="independent evaluator rubric and tier thresholds">
+          <TechnicalBreakout className="mb-4 bg-slate-50" title="evaluator rubric and tier thresholds">
             <p>
               Both the naive answer and committee transcript are sent through the same evaluator contract.
               In local mode the demo returns a deterministic fixture; in API mode the evaluator returns JSON

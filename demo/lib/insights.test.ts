@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { computeConfidenceMetrics, computeStabilityMetrics, summarizeEvidenceState } from "./insights";
-import { RunSnapshot } from "./types";
+import {
+  buildMetacognitionDetail,
+  computeConfidenceMetrics,
+  computeStabilityMetrics,
+  sumMetacognitionPhaseTotals,
+  summarizeEvidenceState,
+} from "./insights";
+import { CharacterRoundState, RunSnapshot } from "./types";
 
 function buildRun(partial: Partial<RunSnapshot> & Pick<RunSnapshot, "id">): RunSnapshot {
   return {
@@ -23,7 +29,83 @@ function buildRun(partial: Partial<RunSnapshot> & Pick<RunSnapshot, "id">): RunS
   };
 }
 
+function emptyCharacterState(text = ""): CharacterRoundState {
+  return {
+    phase1: text,
+    phase2: "",
+    streaming: false,
+    done: true,
+    researchState: "idle",
+    researchPacket: null,
+  };
+}
+
 describe("insights aggregation", () => {
+  it("buildMetacognitionDetail lists literal matched terms per role", () => {
+    const state: Record<string, CharacterRoundState> = {
+      maya: emptyCharacterState("Governance matters for power."),
+      frankie: emptyCharacterState(""),
+      joe: emptyCharacterState(""),
+      vic: emptyCharacterState(""),
+      tammy: emptyCharacterState(""),
+    };
+    const detail = buildMetacognitionDetail(state);
+    expect(detail.maya.total).toBe(2);
+    expect(detail.maya.hits).toEqual(
+      expect.arrayContaining([
+        { term: "governance", count: 1 },
+        { term: "power", count: 1 },
+      ]),
+    );
+    expect(detail.maya.hits.length).toBe(2);
+    expect(detail.maya.round1.total).toBe(2);
+    expect(detail.maya.round2.total).toBe(0);
+  });
+
+  it("buildMetacognitionDetail splits counts by round", () => {
+    const state: Record<string, CharacterRoundState> = {
+      maya: {
+        phase1: "Governance.",
+        phase2: "Power and more power.",
+        streaming: false,
+        done: true,
+        researchState: "idle",
+        researchPacket: null,
+      },
+      frankie: emptyCharacterState(""),
+      joe: emptyCharacterState(""),
+      vic: emptyCharacterState(""),
+      tammy: emptyCharacterState(""),
+    };
+    const detail = buildMetacognitionDetail(state);
+    expect(detail.maya.total).toBe(3);
+    expect(detail.maya.round1.total).toBe(1);
+    expect(detail.maya.round2.total).toBe(2);
+    expect(detail.maya.round1.hits.some((h) => h.term === "governance")).toBe(true);
+    expect(detail.maya.round2.hits.some((h) => h.term === "power" && h.count === 2)).toBe(true);
+  });
+
+  it("sumMetacognitionPhaseTotals aggregates R1/R2 across roles", () => {
+    const state: Record<string, CharacterRoundState> = {
+      maya: {
+        phase1: "Governance.",
+        phase2: "Power and more power.",
+        streaming: false,
+        done: true,
+        researchState: "idle",
+        researchPacket: null,
+      },
+      frankie: emptyCharacterState(""),
+      joe: emptyCharacterState(""),
+      vic: emptyCharacterState(""),
+      tammy: emptyCharacterState(""),
+    };
+    const totals = sumMetacognitionPhaseTotals(state);
+    expect(totals.round1).toBe(1);
+    expect(totals.round2).toBe(2);
+    expect(totals.delta).toBe(1);
+  });
+
   it("computeStabilityMetrics tracks agreement and low-N warning", () => {
     const history: RunSnapshot[] = [
       buildRun({ id: "r1", majorityAfter: "Nay", committeeAverage: 2.4, delta: 0.5 }),
@@ -48,6 +130,19 @@ describe("insights aggregation", () => {
     expect(metrics.floorBound).toBe(2.0);
     expect(metrics.latest).toBe(2.4);
     expect(metrics.trendSlope).toBeGreaterThan(0);
+    expect(metrics.uncertaintyBand.upper).toBeGreaterThanOrEqual(metrics.uncertaintyBand.lower);
+  });
+
+  it("computeConfidenceMetrics keeps uncertainty band on 1–5 rubric scale (no inverted band)", () => {
+    const history: RunSnapshot[] = [
+      buildRun({ id: "r1", committeeAverage: 4.4 }),
+      buildRun({ id: "r2", committeeAverage: 4.4 }),
+      buildRun({ id: "r3", committeeAverage: 5.0 }),
+    ];
+    const metrics = computeConfidenceMetrics(history);
+
+    expect(metrics.uncertaintyBand.lower).toBeGreaterThanOrEqual(1);
+    expect(metrics.uncertaintyBand.upper).toBeLessThanOrEqual(5);
     expect(metrics.uncertaintyBand.upper).toBeGreaterThanOrEqual(metrics.uncertaintyBand.lower);
   });
 

@@ -125,8 +125,8 @@ metacognition trace =
           <AlgorithmBlock>{`maya:    /\b(incentive|benefit|insulated|governance|power)\b/g
 frankie: /\b(value|ethical|dignity|harm|legitimacy)\b/g
 joe:     /\b(before|precedent|history|memory|tried)\b/g
-vic:     /\b(evidence|falsif|base rate|test|measur)\b/g
-tammy:   /\b(feedback|second-order|system|loop|atrophy)\b/g
+vic:     /\b(evidence|falsif\w*|falsification|base rate|test|measur\w*)\b/g
+tammy:   /\b(feedback|second[- ]order|system|loop|atrophy)\b/g
 
 text = lowercase(round1Text + " " + latestDeliberationText)
 pressure[role] = count(regex matches in text)`}</AlgorithmBlock>

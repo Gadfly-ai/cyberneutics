@@ -30,12 +30,12 @@ const GLOSSARY: { term: string; definition: string }[] = [
   {
     term: "Execution mode",
     definition:
-      "Auto, local, or API: whether this run uses in-repo demo text or calls Anthropic. Your API key stays on the server (`.env.local`), never in the browser.",
+      "Auto, local, or API: whether this run uses in-repo demo text or calls Anthropic. Your API key stays on the server (`.env.local`), never in the browser. Local runs are repeatable—batch mode repeats the same outcome; API runs can differ each time. Check which mode produced the history before reading trends or stability.",
   },
   {
     term: "Local demo",
     definition:
-      "Deterministic canned answers and scores—works with no key so you can explore the UI and code paths offline.",
+      "Deterministic canned answers and scores—works with no key so you can explore the UI and code paths offline. Metrics derived from the transcript (including keyword-style signals) do not “learn” or drift across batches.",
   },
   {
     term: "Evaluator / rubric",
@@ -67,6 +67,7 @@ export function AboutDemoDialog() {
         About this demo
       </button>
       <dialog
+        id="about-demo-dialog"
         ref={dialogRef}
         className="w-[min(100%,36rem)] max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-300 bg-white p-0 shadow-xl backdrop:bg-slate-900/45 open:flex open:max-h-[min(85vh,40rem)] open:flex-col"
         aria-labelledby="about-demo-title"
@@ -101,6 +102,12 @@ export function AboutDemoDialog() {
                 adversarial committees
               </a>
               . Built for <strong>your machine</strong>; optional Anthropic key for live models.
+            </p>
+            <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-slate-800">
+              <strong className="font-semibold">Run mode shapes what you are measuring.</strong> Local mode uses fixed
+              demo text, so every repeat (including batch runs) reproduces the same transcript and the same derived
+              metrics. API mode calls the model, so outputs and scores can vary—use that when you want batch or history
+              to reflect real stochastic behavior.
             </p>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Key terms</h3>
             <dl className="space-y-3">

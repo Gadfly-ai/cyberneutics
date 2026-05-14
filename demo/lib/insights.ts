@@ -8,21 +8,150 @@ import {
   RunSnapshot,
   StabilityMetrics,
 } from "./types";
-import { inferMajority, inferVoteWithSource } from "./voteInference";
+import { inferMajority, inferVoteWithSource, VoteLabel } from "./voteInference";
 
-function countMatches(text: string, regex: RegExp): number {
-  return (text.match(regex) ?? []).length;
+export type MetacognitionRoleId = "maya" | "frankie" | "joe" | "vic" | "tammy";
+
+const METACOGNITION_PATTERNS: Record<MetacognitionRoleId, RegExp> = {
+  maya: /\b(incentive|benefit|insulated|governance|power)\b/g,
+  frankie: /\b(value|ethical|dignity|harm|legitimacy)\b/g,
+  joe: /\b(before|precedent|history|memory|tried)\b/g,
+  vic: /\b(evidence|falsif\w*|falsification|base rate|test|measur\w*)\b/g,
+  tammy: /\b(feedback|second[- ]order|system|loop|atrophy)\b/g,
+};
+
+export interface MetacognitionPhaseSlice {
+  total: number;
+  /** Literal matched substrings (lower-cased), with occurrence counts, for this phase only. */
+  hits: { term: string; count: number }[];
+}
+
+export interface MetacognitionRoleDetail {
+  total: number;
+  /** Combined round 1 + round 2; counts are summed per term. */
+  hits: { term: string; count: number }[];
+  round1: MetacognitionPhaseSlice;
+  round2: MetacognitionPhaseSlice;
+}
+
+export function formatMetacognitionHitSummary(
+  hits: MetacognitionRoleDetail["hits"] | MetacognitionPhaseSlice["hits"],
+): string {
+  if (hits.length === 0) return "—";
+  return hits.map((h) => (h.count > 1 ? `${h.term} ×${h.count}` : h.term)).join(", ");
+}
+
+function collectMetacognitionHits(text: string, pattern: RegExp): Map<string, number> {
+  const counts = new Map<string, number>();
+  const haystack = text.toLowerCase();
+  const re = new RegExp(pattern.source, pattern.flags);
+  for (const match of haystack.matchAll(re)) {
+    const term = match[0];
+    counts.set(term, (counts.get(term) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function mergeHitMaps(a: Map<string, number>, b: Map<string, number>): Map<string, number> {
+  const out = new Map(a);
+  for (const [key, value] of b) {
+    out.set(key, (out.get(key) ?? 0) + value);
+  }
+  return out;
+}
+
+function mapToPhaseSlice(map: Map<string, number>): MetacognitionPhaseSlice {
+  const hits = [...map.entries()]
+    .map(([term, count]) => ({ term, count }))
+    .sort((a, b) => b.count - a.count || a.term.localeCompare(b.term));
+  const total = hits.reduce((sum, hit) => sum + hit.count, 0);
+  return { total, hits };
+}
+
+function metacognitionDetailForRole(
+  state: Record<string, CharacterRoundState>,
+  id: MetacognitionRoleId,
+): MetacognitionRoleDetail {
+  const pattern = METACOGNITION_PATTERNS[id];
+  const r1 = collectMetacognitionHits(state[id]?.phase1 ?? "", pattern);
+  const r2 = collectMetacognitionHits(state[id]?.phase2 ?? "", pattern);
+  const merged = mergeHitMaps(r1, r2);
+  const combined = mapToPhaseSlice(merged);
+  return {
+    total: combined.total,
+    hits: combined.hits,
+    round1: mapToPhaseSlice(r1),
+    round2: mapToPhaseSlice(r2),
+  };
+}
+
+export function buildMetacognitionDetail(
+  state: Record<string, CharacterRoundState>,
+): Record<MetacognitionRoleId, MetacognitionRoleDetail> {
+  return {
+    maya: metacognitionDetailForRole(state, "maya"),
+    frankie: metacognitionDetailForRole(state, "frankie"),
+    joe: metacognitionDetailForRole(state, "joe"),
+    vic: metacognitionDetailForRole(state, "vic"),
+    tammy: metacognitionDetailForRole(state, "tammy"),
+  };
 }
 
 export function buildMetacognitionCounts(state: Record<string, CharacterRoundState>) {
-  const getText = (id: string) => `${state[id]?.phase1 ?? ""} ${state[id]?.phase2 ?? ""}`;
+  const detail = buildMetacognitionDetail(state);
   return {
-    maya: countMatches(getText("maya").toLowerCase(), /\b(incentive|benefit|insulated|governance|power)\b/g),
-    frankie: countMatches(getText("frankie").toLowerCase(), /\b(value|ethical|dignity|harm|legitimacy)\b/g),
-    joe: countMatches(getText("joe").toLowerCase(), /\b(before|precedent|history|memory|tried)\b/g),
-    vic: countMatches(getText("vic").toLowerCase(), /\b(evidence|falsif|base rate|test|measur)\b/g),
-    tammy: countMatches(getText("tammy").toLowerCase(), /\b(feedback|second-order|system|loop|atrophy)\b/g),
+    maya: detail.maya.total,
+    frankie: detail.frankie.total,
+    joe: detail.joe.total,
+    vic: detail.vic.total,
+    tammy: detail.tammy.total,
   };
+}
+
+/** Per-phase keyword hit totals (sum across roles); delta is round2 − round1. */
+export function anyCharacterStreaming(state: Record<string, CharacterRoundState>): boolean {
+  return CHARACTERS.some((c) => state[c.id]?.streaming);
+}
+
+export function sumMetacognitionPhaseTotals(state: Record<string, CharacterRoundState>): {
+  round1: number;
+  round2: number;
+  delta: number;
+} {
+  const detail = buildMetacognitionDetail(state);
+  let round1 = 0;
+  let round2 = 0;
+  for (const character of CHARACTERS) {
+    const id = character.id as MetacognitionRoleId;
+    round1 += detail[id].round1.total;
+    round2 += detail[id].round2.total;
+  }
+  return { round1, round2, delta: round2 - round1 };
+}
+
+/** Vote counts for one phase (five roles). */
+export interface VoteTally {
+  aye: number;
+  nay: number;
+  undetermined: number;
+}
+
+export function tallyVotes(votes: VoteLabel[]): VoteTally {
+  return {
+    aye: votes.filter((v) => v === "Aye").length,
+    nay: votes.filter((v) => v === "Nay").length,
+    undetermined: votes.filter((v) => v === "Undetermined").length,
+  };
+}
+
+/** |Aye − Nay|; ties and undetermined voters do not increase the winning margin. */
+export function voteMargin(tally: VoteTally): number {
+  return Math.abs(tally.aye - tally.nay);
+}
+
+export interface CondorcetInferenceDiagnostics {
+  round1: { declared: number; fallback: number };
+  round2: { declared: number; fallback: number };
 }
 
 export function buildCondorcetShift(state: Record<string, CharacterRoundState>) {
@@ -41,11 +170,36 @@ export function buildCondorcetShift(state: Record<string, CharacterRoundState>) 
   const majorityBefore = inferMajority(rows.map((r) => r.before));
   const majorityAfter = inferMajority(rows.map((r) => r.after));
 
+  const tallyBefore = tallyVotes(rows.map((r) => r.before));
+  const tallyAfter = tallyVotes(rows.map((r) => r.after));
+  const marginBefore = voteMargin(tallyBefore);
+  const marginAfter = voteMargin(tallyAfter);
+
+  let r1Declared = 0;
+  let r1Fallback = 0;
+  let r2Declared = 0;
+  let r2Fallback = 0;
+  for (const row of rows) {
+    if (row.beforeSource === "declared") r1Declared += 1;
+    else r1Fallback += 1;
+    if (row.afterSource === "declared") r2Declared += 1;
+    else r2Fallback += 1;
+  }
+  const inferenceDiagnostics: CondorcetInferenceDiagnostics = {
+    round1: { declared: r1Declared, fallback: r1Fallback },
+    round2: { declared: r2Declared, fallback: r2Fallback },
+  };
+
   return {
     rows,
     majorityBefore,
     majorityAfter,
     meaningfulDifference: majorityBefore !== "Undetermined" && majorityAfter !== "Undetermined" && majorityBefore !== majorityAfter,
+    tallyBefore,
+    tallyAfter,
+    marginBefore,
+    marginAfter,
+    inferenceDiagnostics,
   };
 }
 
@@ -170,8 +324,8 @@ export function computeConfidenceMetrics(history: RunSnapshot[]): ConfidenceMetr
     latest,
     deltaFromRollingMean: latest - rollingMean,
     uncertaintyBand: {
-      lower: Math.max(0, medianScore - uncertainty),
-      upper: Math.min(3, medianScore + uncertainty),
+      lower: Math.max(1, medianScore - uncertainty),
+      upper: Math.min(5, medianScore + uncertainty),
     },
     trendSlope,
   };

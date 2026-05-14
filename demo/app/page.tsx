@@ -1,23 +1,27 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { CommitteeLiveFeed } from "@/components/CommitteeLiveFeed";
 import { CommitteePanel } from "@/components/CommitteePanel";
 import { CalculationExplainer } from "@/components/CalculationExplainer";
 import { CommitteeDynamicsPanel } from "@/components/CommitteeDynamicsPanel";
-import { CommitteeNetworkMini } from "@/components/CommitteeNetworkMini";
+import { DeliberationAnatomyCanvas } from "@/components/DeliberationAnatomyCanvas";
+import { EvidenceRibbonPanel } from "@/components/EvidenceRibbonPanel";
 import { ComparisonInsightsPanel } from "@/components/ComparisonInsightsPanel";
 import { DecisionAccountabilitySection } from "@/components/DecisionAccountabilitySection";
 import { DeliberationDashboard } from "@/components/DeliberationDashboard";
+import { LiveRunCommandCenter } from "@/components/LiveRunCommandCenter";
+import { RunOutcomeLogPanel } from "@/components/RunOutcomeLogPanel";
 import { EvaluationPanel } from "@/components/EvaluationPanel";
-import { LiveMetricsStrip } from "@/components/LiveMetricsStrip";
+import { ObservabilityDock } from "@/components/ObservabilityDock";
 import { LongitudinalEvidencePanel } from "@/components/LongitudinalEvidencePanel";
 import { NaivePanel } from "@/components/NaivePanel";
 import { AboutDemoDialog } from "@/components/AboutDemoDialog";
 import { REPO_ORIGIN } from "@/lib/repoUrls";
-import { QuestionInput } from "@/components/QuestionInput";
+import { HeroPromptLibrary } from "@/components/HeroPromptLibrary";
 import { buildCondorcetShift, buildMetacognitionCounts, summarizeEvidenceState } from "@/lib/insights";
 import { CHARACTERS } from "@/lib/characters";
-import { PRESET_QUESTIONS } from "@/lib/prompts";
+import { PRESET_QUESTIONS, SELF_IMPROVEMENT_QUESTION } from "@/lib/prompts";
 import {
   CharacterRoundState,
   CommitteeEvent,
@@ -28,6 +32,7 @@ import {
   ExecutionMode,
   OverrideRecord,
   RiskSeverity,
+  RunKind,
   RunSnapshot,
 } from "@/lib/types";
 import {
@@ -79,7 +84,25 @@ interface TrendPoint {
   naiveAverage: number;
   delta: number;
   metacognitionTotal: number;
+  inferredVoteShifts: number;
   majorityAfter: string;
+  executionSource: RunSnapshot["executionSource"];
+}
+
+interface MagicRunProgress {
+  attempt: number;
+  maxAttempts: number;
+  lastMajority: string;
+}
+
+type MagicRunGuidanceTone = "collecting" | "continue" | "caution" | "stop" | "resolved";
+
+interface MagicRunGuidance {
+  label: string;
+  detail: string;
+  recommendation: string;
+  meterPercent: number;
+  tone: MagicRunGuidanceTone;
 }
 
 function average(values: number[]): number {
@@ -159,6 +182,14 @@ function buildTranscript(states: Record<string, CharacterRoundState>): string {
   }).join("\n\n");
 }
 
+const STORED_OUTPUT_EXCERPT_MAX = 1200;
+
+function excerptForStorage(text: string, maxLen: number): string {
+  const t = text.trim();
+  if (t.length <= maxLen) return t;
+  return `${t.slice(0, maxLen - 1)}…`;
+}
+
 function extractConcernCandidates(transcript: string): Array<{ title: string; description: string }> {
   const lines = transcript
     .split("\n")
@@ -175,18 +206,126 @@ function extractConcernCandidates(transcript: string): Array<{ title: string; de
 }
 
 const UI_SKIN_STORAGE_KEY = "cyberneutics:ui-skin:v1";
+const MAX_SELF_IMPROVEMENT_ROUNDS = 5;
+const MAX_MAGIC_RUN_ATTEMPTS = 25;
 
 type UiSkin = "boring" | "cybercool";
 
 const RUN_MODE_OPTIONS_BORING: ReadonlyArray<{ value: RunMode; label: string; description: string }> = [
   { value: "local", label: "Local", description: "In-process simulator, deterministic" },
-  { value: "api", label: "API", description: "Live model calls (OpenAI/Anthropic)" },
+  { value: "api", label: "API", description: "Live Claude calls (Anthropic)" },
 ];
 
 const RUN_MODE_OPTIONS_CYBERCOOL: ReadonlyArray<{ value: RunMode; label: string; description: string }> = [
   { value: "local", label: "LOCALHOST", description: "Offline sim — deterministic trace, no uplink" },
-  { value: "api", label: "WAN UPLINK", description: "Live stack (OpenAI / Anthropic)" },
+  { value: "api", label: "API LIVE", description: "Live Claude stack (Anthropic)" },
 ];
+
+const MAGIC_GUIDANCE_TONE_CLASS: Record<MagicRunGuidanceTone, string> = {
+  collecting: "border-sky-200 bg-sky-50 text-sky-900",
+  continue: "border-emerald-200 bg-emerald-50 text-emerald-900",
+  caution: "border-amber-200 bg-amber-50 text-amber-900",
+  stop: "border-rose-200 bg-rose-50 text-rose-900",
+  resolved: "border-emerald-300 bg-emerald-50 text-emerald-950",
+};
+
+const MAGIC_GUIDANCE_METER_CLASS: Record<MagicRunGuidanceTone, string> = {
+  collecting: "bg-sky-500",
+  continue: "bg-emerald-500",
+  caution: "bg-amber-500",
+  stop: "bg-rose-500",
+  resolved: "bg-emerald-600",
+};
+
+function buildMagicRunGuidance(
+  attemptRuns: RunSnapshot[],
+  progress: MagicRunProgress | null,
+): MagicRunGuidance {
+  if (!progress) {
+    return {
+      label: "Waiting",
+      detail: "The resolution loop has not started.",
+      recommendation: "Choose a run mode and start when ready.",
+      meterPercent: 0,
+      tone: "collecting",
+    };
+  }
+
+  const completedAttempts = attemptRuns.length;
+  const latestMajority = progress.lastMajority;
+  if (latestMajority !== "Undetermined") {
+    return {
+      label: `Resolved: ${latestMajority}`,
+      detail: "A clear majority appeared in the latest completed attempt.",
+      recommendation: "Stop condition met. Inspect the transcript before spending on more live runs.",
+      meterPercent: 100,
+      tone: "resolved",
+    };
+  }
+
+  if (completedAttempts === 0) {
+    return {
+      label: "Collecting first attempt",
+      detail: "The current attempt is still running, so there is not enough evidence to read a trend yet.",
+      recommendation: "Let this attempt finish, then decide whether another full stack is worth it.",
+      meterPercent: 12,
+      tone: "collecting",
+    };
+  }
+
+  const committeeScores = attemptRuns.map((run) => run.committeeAverage);
+  const committeeSpread = Math.max(...committeeScores) - Math.min(...committeeScores);
+  const recentRuns = attemptRuns.slice(-Math.min(3, completedAttempts));
+  const recentAllUndetermined = recentRuns.every((run) => run.majorityAfter === "Undetermined");
+
+  if (completedAttempts < 2) {
+    return {
+      label: "Still unresolved",
+      detail: "One completed attempt did not produce a clear majority.",
+      recommendation: "Continue only if a second full attempt is worth the extra signal.",
+      meterPercent: 28,
+      tone: "caution",
+    };
+  }
+
+  if (recentAllUndetermined && completedAttempts >= 4 && committeeSpread <= 0.5) {
+    return {
+      label: "Converging on no majority",
+      detail: `The last ${recentRuns.length} attempts stayed undetermined while committee scores clustered tightly.`,
+      recommendation: "Consider stopping: the loop is rediscovering a stable unresolved state.",
+      meterPercent: 74,
+      tone: "caution",
+    };
+  }
+
+  if (recentAllUndetermined && completedAttempts >= 3) {
+    return {
+      label: "Diverging or stalled",
+      detail: `The last ${recentRuns.length} attempts remained undetermined and scores are not yet stable.`,
+      recommendation: "Pause if budget matters. Rewrite the prompt or inspect the run history before continuing.",
+      meterPercent: 42,
+      tone: "stop",
+    };
+  }
+
+  if (committeeSpread <= 0.5) {
+    return {
+      label: "Converging",
+      detail: "Committee scores are clustering, but the vote has not produced a clear majority yet.",
+      recommendation: "One more attempt may be reasonable if resolving the majority is worth the spend.",
+      meterPercent: 66,
+      tone: "continue",
+    };
+  }
+
+  return {
+    label: "Diverging",
+    detail: "Recent attempts vary enough that the loop is exploring rather than settling.",
+    recommendation: "Prefer stopping, reviewing the traces, or running a smaller targeted batch.",
+    meterPercent: 36,
+    tone: "stop",
+  };
+}
 
 export default function Home() {
   const [question, setQuestion] = useState<string>(STARTER_QUESTION);
@@ -203,41 +342,61 @@ export default function Home() {
   const [presentationMode, setPresentationMode] = useState(true);
   const [deliberationRounds, setDeliberationRounds] = useState(2);
   const [adaptiveDepth, setAdaptiveDepth] = useState(true);
-  const [runHistory, setRunHistory] = useState<RunSnapshot[]>(() => listAllRunMemory());
+  const [runHistory, setRunHistory] = useState<RunSnapshot[]>([]);
   const [batchRunCount, setBatchRunCount] = useState(3);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [runMode, setRunMode] = useState<RunMode>("local");
   const [activeSource, setActiveSource] = useState<"LOCAL" | "API">("LOCAL");
   const [isLiveGraphMinimized, setIsLiveGraphMinimized] = useState(false);
-  const [concerns, setConcerns] = useState<ConcernRecord[]>(() =>
-    listDecisionMemoryByQuestion(normalizeQuestionKey(STARTER_QUESTION)).concerns,
-  );
-  const [dispositions, setDispositions] = useState<DispositionRecord[]>(() =>
-    listDecisionMemoryByQuestion(normalizeQuestionKey(STARTER_QUESTION)).dispositions,
-  );
-  const [overrides, setOverrides] = useState<OverrideRecord[]>(() =>
-    listDecisionMemoryByQuestion(normalizeQuestionKey(STARTER_QUESTION)).overrides,
-  );
+  const [concerns, setConcerns] = useState<ConcernRecord[]>([]);
+  const [dispositions, setDispositions] = useState<DispositionRecord[]>([]);
+  const [overrides, setOverrides] = useState<OverrideRecord[]>([]);
   const [finalizationMessage, setFinalizationMessage] = useState<string | null>(null);
-  const [uiSkin, setUiSkin] = useState<UiSkin>(() => {
-    if (typeof window === "undefined") return "boring";
-    try {
-      const raw = window.localStorage.getItem(UI_SKIN_STORAGE_KEY);
-      if (raw === "cybercool" || raw === "boring") return raw;
-    } catch {
-      /* ignore */
-    }
-    return "boring";
-  });
+  const [selfImprovementProgress, setSelfImprovementProgress] = useState<{
+    round: number;
+    total: number;
+    concernsThisRound: number;
+    cumulativeImprovements: string[];
+  } | null>(null);
+  const [magicRunProgress, setMagicRunProgress] = useState<MagicRunProgress | null>(null);
+  const [magicRunStopRequested, setMagicRunStopRequested] = useState(false);
+  const [magicRunStartIndex, setMagicRunStartIndex] = useState<number | null>(null);
+  const [magicRunExecutionMode, setMagicRunExecutionMode] = useState<RunMode | null>(null);
+  const [uiSkin, setUiSkin] = useState<UiSkin>("boring");
   const liveTranscript = buildTranscript(characterResponses);
+  const isSelfImprovementPrompt =
+    normalizeQuestionKey(question) === normalizeQuestionKey(SELF_IMPROVEMENT_QUESTION);
   const isCybercool = uiSkin === "cybercool";
   const runModeOptions = isCybercool ? RUN_MODE_OPTIONS_CYBERCOOL : RUN_MODE_OPTIONS_BORING;
   const questionInputRef = useRef<HTMLDivElement | null>(null);
+  const commandCenterRef = useRef<HTMLDivElement | null>(null);
   const committeeRef = useRef<HTMLDivElement | null>(null);
   const evaluationRef = useRef<HTMLDivElement | null>(null);
-  const insightsRef = useRef<HTMLDivElement | null>(null);
-  const accountabilityRef = useRef<HTMLDivElement | null>(null);
+  const insightsRef = useRef<HTMLDetailsElement | null>(null);
+  const accountabilityRef = useRef<HTMLDetailsElement | null>(null);
   const skipNextSkinPersist = useRef(true);
+  const stopMagicRunRequestedRef = useRef(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setRunHistory(listAllRunMemory());
+      const mem = listDecisionMemoryByQuestion(normalizeQuestionKey(STARTER_QUESTION));
+      setConcerns(mem.concerns);
+      setDispositions(mem.dispositions);
+      setOverrides(mem.overrides);
+      try {
+        const raw = window.localStorage.getItem(UI_SKIN_STORAGE_KEY);
+        if (raw === "cybercool" || raw === "boring") {
+          setUiSkin(raw);
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const normalizedQuestionKey = normalizeQuestionKey(question);
   const sameQuestionRuns = runHistory.filter((run) => run.questionKey === normalizedQuestionKey);
   const committeeScores = sameQuestionRuns.map((run) => run.committeeAverage);
@@ -275,13 +434,18 @@ export default function Home() {
   const majorityBeforeDistribution = buildMajorityDistribution(sameQuestionRuns, "before");
   const majorityAfterDistribution = buildMajorityDistribution(sameQuestionRuns, "after");
   const lastRun = sameQuestionRuns[sameQuestionRuns.length - 1] ?? null;
+  const magicRunAttempts =
+    magicRunProgress && magicRunStartIndex !== null ? sameQuestionRuns.slice(magicRunStartIndex) : [];
+  const magicRunGuidance = buildMagicRunGuidance(magicRunAttempts, magicRunProgress);
   const trendPoints: TrendPoint[] = sameQuestionRuns.map((run, index) => ({
     runIndex: index + 1,
     committeeAverage: run.committeeAverage,
     naiveAverage: run.naiveAverage,
     delta: run.delta,
     metacognitionTotal: run.metacognitionTotal,
+    inferredVoteShifts: run.inferredVoteShifts,
     majorityAfter: run.majorityAfter,
+    executionSource: run.executionSource,
   }));
   const dashboardStatus =
     sameQuestionRuns.length < 2
@@ -297,6 +461,10 @@ export default function Home() {
       : committeeSpread <= 0.5
         ? "Likely convergent: committee scores cluster tightly."
         : "Likely divergent: committee scores vary across runs.";
+  const isLikelyConvergentCrossRun =
+    sameQuestionRuns.length >= 2 && committeeSpread <= 0.5;
+  const majorityInstabilityFraming =
+    isLikelyConvergentCrossRun && majorityStabilityRate === 0;
   const evidenceSummary = summarizeEvidenceState(normalizedQuestionKey, sameQuestionRuns);
   const dispositionedConcernIds = new Set(dispositions.map((item) => item.concernId));
   const undispositionedConcerns = concerns.filter((concern) => !dispositionedConcernIds.has(concern.id));
@@ -340,8 +508,13 @@ export default function Home() {
 
   useEffect(() => {
     if (!presentationMode || !isRunning) return;
+    commandCenterRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [isRunning, presentationMode]);
+
+  useEffect(() => {
+    if (!presentationMode || !isRunning) return;
     if (currentPhase > 0) {
-      committeeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      commandCenterRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [currentPhase, isRunning, presentationMode]);
 
@@ -353,11 +526,10 @@ export default function Home() {
   }, [evaluating, isRunning, presentationMode]);
 
   useEffect(() => {
-    if (!presentationMode) return;
     if (!isRunning && evaluation && naiveEvaluation) {
-      insightsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      evaluationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [isRunning, evaluation, naiveEvaluation, presentationMode]);
+  }, [isRunning, evaluation, naiveEvaluation]);
 
   const toExecutionMode = (mode: "local" | "api"): ExecutionMode => mode;
 
@@ -581,6 +753,8 @@ export default function Home() {
     questionToAsk: string,
     result: RunResult,
     source: "LOCAL" | "API",
+    batch: { index: number; total: number } | null,
+    runKind: RunKind = "single",
   ) => {
     const snapshot: RunSnapshot = {
       id: createRunSnapshotId(),
@@ -603,6 +777,18 @@ export default function Home() {
       majorityBefore: result.condorcet.majorityBefore,
       majorityAfter: result.condorcet.majorityAfter,
       executionSource: source,
+      runKind,
+      deliberationRoundsConfigured: deliberationRounds,
+      adaptiveDepth,
+      naiveKeyFinding: result.naiveEval.key_finding,
+      committeeKeyFinding: result.committeeEval.key_finding,
+      naiveOutputExcerpt: excerptForStorage(result.naiveOutput, STORED_OUTPUT_EXCERPT_MAX),
+      committeeTranscriptExcerpt: excerptForStorage(
+        buildTranscript(result.committeeState),
+        STORED_OUTPUT_EXCERPT_MAX,
+      ),
+      batchIndex: batch?.index ?? null,
+      batchTotal: batch?.total ?? null,
     };
     appendRunMemory(snapshot);
     setRunHistory((prev) => [...prev, snapshot]);
@@ -742,15 +928,15 @@ export default function Home() {
     setFinalizationMessage(null);
     try {
       const mode = runMode;
+      const source = mode === "local" ? "LOCAL" : "API";
+      setActiveSource(source);
       const result = await executeSingleRun(question.trim(), mode);
       setCharacterResponses(result.committeeState);
       setNaiveText(result.naiveOutput);
       setNaiveEvaluation(result.naiveEval);
       setEvaluation(result.committeeEval);
       setCurrentPhase(result.usedRounds);
-      const source = mode === "local" ? "LOCAL" : "API";
-      setActiveSource(source);
-      pushRunSnapshot(question.trim(), result, source);
+      pushRunSnapshot(question.trim(), result, source, null);
       const seededCount = seedConcernsFromTranscript(buildTranscript(result.committeeState));
       if (seededCount > 0) {
         setFinalizationMessage(
@@ -777,18 +963,18 @@ export default function Home() {
     setNaiveEvaluation(null);
     setFinalizationMessage(null);
     try {
+      const mode = runMode;
+      const source = mode === "local" ? "LOCAL" : "API";
+      setActiveSource(source);
       for (let i = 0; i < total; i += 1) {
         setBatchProgress({ current: i + 1, total });
-        const mode = runMode;
         const result = await executeSingleRun(question.trim(), mode);
         setCharacterResponses(result.committeeState);
         setNaiveText(result.naiveOutput);
         setNaiveEvaluation(result.naiveEval);
         setEvaluation(result.committeeEval);
         setCurrentPhase(result.usedRounds);
-        const source = mode === "local" ? "LOCAL" : "API";
-        setActiveSource(source);
-        pushRunSnapshot(question.trim(), result, source);
+        pushRunSnapshot(question.trim(), result, source, { index: i + 1, total }, "batch");
         seedConcernsFromTranscript(buildTranscript(result.committeeState));
       }
       setFinalizationMessage("Batch completed. Finalization requires dispositions for all concerns.");
@@ -796,6 +982,244 @@ export default function Home() {
       setError((runError as Error).message ?? "Batch run failed.");
     } finally {
       setBatchProgress(null);
+      setNaiveStreaming(false);
+      setEvaluating(false);
+      setIsRunning(false);
+    }
+  };
+
+  const handleSelfImprovementRun = async () => {
+    if (!question.trim() || isRunning) return;
+    setIsRunning(true);
+    setError(null);
+    setEvaluation(null);
+    setNaiveEvaluation(null);
+    setBatchProgress(null);
+    setFinalizationMessage(null);
+
+    const cumulativeImprovements: string[] = [];
+    let latestConcernsList: ConcernRecord[] = [...concerns];
+    let latestDispositionsList: DispositionRecord[] = [...dispositions];
+
+    try {
+      for (let round = 1; round <= MAX_SELF_IMPROVEMENT_ROUNDS; round += 1) {
+        setSelfImprovementProgress({
+          round,
+          total: MAX_SELF_IMPROVEMENT_ROUNDS,
+          concernsThisRound: 0,
+          cumulativeImprovements: [...cumulativeImprovements],
+        });
+
+        const augmentedQuestion =
+          round === 1
+            ? question.trim()
+            : `${question.trim()}\n\n--- Improvements accepted in prior rounds (${round - 1} of ${MAX_SELF_IMPROVEMENT_ROUNDS}) ---\n${cumulativeImprovements.map((item, idx) => `${idx + 1}. ${item}`).join("\n")}\n\nGiven these accepted changes, what further structural weaknesses remain? Focus on issues NOT already addressed above.`;
+
+        const mode = runMode;
+        const source = mode === "local" ? "LOCAL" : "API";
+        setActiveSource(source);
+        const result = await executeSingleRun(augmentedQuestion, mode);
+
+        setCharacterResponses(result.committeeState);
+        setNaiveText(result.naiveOutput);
+        setNaiveEvaluation(result.naiveEval);
+        setEvaluation(result.committeeEval);
+        setCurrentPhase(result.usedRounds);
+        pushRunSnapshot(
+          question.trim(),
+          result,
+          source,
+          {
+            index: round,
+            total: MAX_SELF_IMPROVEMENT_ROUNDS,
+          },
+          "self_improvement",
+        );
+
+        const transcript = buildTranscript(result.committeeState);
+        const candidates = extractConcernCandidates(transcript);
+        const existingDescs = new Set(latestConcernsList.map((c) => c.description));
+        const newConcerns: ConcernRecord[] = [];
+        for (const candidate of candidates) {
+          if (existingDescs.has(candidate.description)) continue;
+          const record: ConcernRecord = {
+            id: createDecisionRecordId(),
+            questionKey: normalizedQuestionKey,
+            title: `R${round}: ${candidate.title}`,
+            description: candidate.description,
+            severity: "medium",
+            owner: "",
+            evidenceRef: `self-improvement round ${round}`,
+            raisedBy: "committee",
+            raisedAt: new Date().toISOString(),
+            status: "raised",
+          };
+          upsertConcern(record);
+          newConcerns.push(record);
+        }
+        if (newConcerns.length > 0) {
+          latestConcernsList = [...latestConcernsList, ...newConcerns];
+          setConcerns(latestConcernsList);
+        }
+
+        setSelfImprovementProgress({
+          round,
+          total: MAX_SELF_IMPROVEMENT_ROUNDS,
+          concernsThisRound: newConcerns.length,
+          cumulativeImprovements: [...cumulativeImprovements],
+        });
+
+        if (newConcerns.length === 0 && round > 1) {
+          setFinalizationMessage(
+            `Self-improvement converged at round ${round} — no new concerns found. ${cumulativeImprovements.length} improvements accepted across ${round - 1} round(s).`,
+          );
+          break;
+        }
+
+        const pendingConcerns = latestConcernsList.filter(
+          (c) => !latestDispositionsList.some((d) => d.concernId === c.id),
+        );
+        for (const concern of pendingConcerns) {
+          const disposition: DispositionRecord = {
+            id: createDecisionRecordId(),
+            concernId: concern.id,
+            questionKey: normalizedQuestionKey,
+            outcome: "accept",
+            status: "completed",
+            rationale: `Auto-accepted during self-improvement round ${round}: ${concern.description.slice(0, 120)}`,
+            decidedBy: "self-improvement-loop",
+            decidedAt: new Date().toISOString(),
+            mitigationActions: "",
+            mitigationOwner: "",
+            mitigationDueDate: null,
+          };
+          upsertDisposition(disposition);
+          latestDispositionsList = [
+            ...latestDispositionsList.filter((d) => d.concernId !== concern.id),
+            disposition,
+          ];
+          cumulativeImprovements.push(concern.description.slice(0, 200));
+
+          const updated: ConcernRecord = { ...concern, status: "closed" };
+          upsertConcern(updated);
+          latestConcernsList = latestConcernsList.map((c) =>
+            c.id === concern.id ? updated : c,
+          );
+        }
+        setConcerns(latestConcernsList);
+        setDispositions(latestDispositionsList);
+
+        if (round === MAX_SELF_IMPROVEMENT_ROUNDS) {
+          setFinalizationMessage(
+            `Self-improvement completed ${MAX_SELF_IMPROVEMENT_ROUNDS} rounds. ${cumulativeImprovements.length} total improvements accepted.`,
+          );
+        }
+      }
+    } catch (runError) {
+      setError((runError as Error).message ?? "Self-improvement loop failed.");
+    } finally {
+      setSelfImprovementProgress(null);
+      setNaiveStreaming(false);
+      setEvaluating(false);
+      setIsRunning(false);
+    }
+  };
+
+  const handleStopMagicRun = () => {
+    stopMagicRunRequestedRef.current = true;
+    setMagicRunStopRequested(true);
+    setRunMode("local");
+  };
+
+  const handleMagicRun = async () => {
+    if (!question.trim() || isRunning) return;
+    const mode = runMode;
+    const source = mode === "local" ? "LOCAL" : "API";
+    stopMagicRunRequestedRef.current = false;
+    setIsRunning(true);
+    setActiveSource(source);
+    setError(null);
+    setEvaluation(null);
+    setNaiveEvaluation(null);
+    setBatchProgress(null);
+    setFinalizationMessage(null);
+    setMagicRunStopRequested(false);
+    setMagicRunStartIndex(sameQuestionRuns.length);
+    setMagicRunExecutionMode(mode);
+
+    try {
+      for (let attempt = 1; attempt <= MAX_MAGIC_RUN_ATTEMPTS; attempt += 1) {
+        if (stopMagicRunRequestedRef.current) {
+          setFinalizationMessage(
+            mode === "api"
+              ? "API resolution loop stopped before starting another attempt. The next run is set to Local."
+              : "Resolution loop stopped before starting another attempt.",
+          );
+          break;
+        }
+
+        setMagicRunProgress({
+          attempt,
+          maxAttempts: MAX_MAGIC_RUN_ATTEMPTS,
+          lastMajority: "Undetermined",
+        });
+
+        const result = await executeSingleRun(question.trim(), mode);
+        setCharacterResponses(result.committeeState);
+        setNaiveText(result.naiveOutput);
+        setNaiveEvaluation(result.naiveEval);
+        setEvaluation(result.committeeEval);
+        setCurrentPhase(result.usedRounds);
+        pushRunSnapshot(
+          question.trim(),
+          result,
+          source,
+          {
+            index: attempt,
+            total: MAX_MAGIC_RUN_ATTEMPTS,
+          },
+          "auto_resolve",
+        );
+        seedConcernsFromTranscript(buildTranscript(result.committeeState));
+
+        setMagicRunProgress({
+          attempt,
+          maxAttempts: MAX_MAGIC_RUN_ATTEMPTS,
+          lastMajority: result.condorcet.majorityAfter,
+        });
+
+        if (result.condorcet.majorityAfter !== "Undetermined") {
+          setFinalizationMessage(
+            `Resolved after ${attempt} attempt${attempt === 1 ? "" : "s"}: majority is ${result.condorcet.majorityAfter}.`,
+          );
+          break;
+        }
+
+        if (stopMagicRunRequestedRef.current) {
+          setFinalizationMessage(
+            mode === "api"
+              ? `Stopped API resolution loop after ${attempt} attempt${
+                  attempt === 1 ? "" : "s"
+                }. The next run is set to Local.`
+              : `Stopped resolution loop after ${attempt} attempt${attempt === 1 ? "" : "s"}.`,
+          );
+          break;
+        }
+
+        if (attempt === MAX_MAGIC_RUN_ATTEMPTS) {
+          setFinalizationMessage(
+            `Reached ${MAX_MAGIC_RUN_ATTEMPTS} attempts without resolving. The committee could not reach a clear majority — the question may be genuinely undecidable at this depth.`,
+          );
+        }
+      }
+    } catch (runError) {
+      setError((runError as Error).message ?? "Magic run failed.");
+    } finally {
+      setMagicRunProgress(null);
+      setMagicRunStartIndex(null);
+      setMagicRunExecutionMode(null);
+      setMagicRunStopRequested(false);
+      stopMagicRunRequestedRef.current = false;
       setNaiveStreaming(false);
       setEvaluating(false);
       setIsRunning(false);
@@ -845,82 +1269,101 @@ export default function Home() {
         presentationMode ? "text-[17px]" : ""
       }`}
     >
-      <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+      <header className="relative overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-b from-white via-white to-slate-50/90 p-6 shadow-sm md:p-8">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-sky-500/80 via-indigo-500/70 to-slate-400/50"
+          aria-hidden
+        />
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between lg:gap-10">
+          <div className="min-w-0 max-w-2xl space-y-3 pt-1">
             {isCybercool ? (
               <>
                 <p className="hackers-prompt text-[11px] font-semibold uppercase tracking-[0.22em]">
-                  &gt; CYBERNEUTICS // SCRIBE_NODE
+                  &gt; CYBERNEUTICS // DEMO_NODE
                 </p>
-                <h1 className="acid-burn-display mt-2 text-lg md:text-xl">
-                  One answer vs decision-space map
-                </h1>
-                <p className="mt-2 font-mono text-[11px] tracking-wide text-slate-500">
+                <h1 className="acid-burn-display text-xl md:text-2xl">One answer vs decision-space map</h1>
+                <p className="font-mono text-[11px] leading-relaxed tracking-wide text-slate-500">
                   {
-                    "// trace: mono-voice vs hostile multiprocessing — same prompt, different architecture"
+                    "// trace: mono-voice vs multi-role deliberation — same prompt, different architecture"
                   }
+                </p>
+                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                  Same uplink · contested roles · offline evaluator
                 </p>
               </>
             ) : (
               <>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cyberneutics Demo</p>
-                <h1 className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">
-                  One Answer vs Decision-Space Map
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Cyberneutics demo
+                </p>
+                <h1 className="text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">
+                  One answer vs decision-space map
                 </h1>
-                <p className="mt-1 text-sm text-slate-600">
-                  Same prompt: single-call output vs adversarial committee, scored independently.
+                <p className="text-base leading-relaxed text-slate-600 md:text-[17px]">
+                  Same prompt to a single model and to an adversarial committee—then scored independently so
+                  architecture is the variable.
+                </p>
+                <p className="text-xs text-slate-500">
+                  Same input · Externalized challenge · Independent rubric
                 </p>
               </>
             )}
           </div>
-          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+
+          <div
+            className={`flex w-full shrink-0 flex-col gap-3 rounded-xl border border-slate-200/90 bg-white/90 p-3 shadow-sm sm:w-auto sm:min-w-[280px] ${
+              isCybercool ? "font-mono" : ""
+            }`}
+          >
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+              {isCybercool ? "UI.skin" : "View & repo"}
+            </div>
             <div
               role="radiogroup"
               aria-label="Interface style"
-              className="inline-flex overflow-hidden rounded-lg border border-slate-300 bg-slate-100 p-0.5 text-xs"
+              className="inline-flex w-full overflow-hidden rounded-lg border border-slate-300 bg-slate-100 p-0.5 text-xs"
             >
               <button
                 type="button"
                 role="radio"
                 aria-checked={uiSkin === "boring"}
                 onClick={() => setUiSkin("boring")}
-                className={`rounded-md px-3 py-1.5 font-semibold transition ${
+                className={`flex-1 rounded-md px-3 py-1.5 font-semibold transition sm:flex-none ${
                   uiSkin === "boring"
                     ? "bg-white text-slate-900 shadow-sm"
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                Boring mode
+                Boring
               </button>
               <button
                 type="button"
                 role="radio"
                 aria-checked={uiSkin === "cybercool"}
                 onClick={() => setUiSkin("cybercool")}
-                className={`rounded-md px-3 py-1.5 font-semibold transition ${
+                className={`flex-1 rounded-md px-3 py-1.5 font-semibold transition sm:flex-none ${
                   uiSkin === "cybercool"
                     ? "bg-white text-slate-900 shadow-sm"
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                Cybercool mode
+                Cybercool
               </button>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+            <div className="flex flex-wrap gap-2">
               <AboutDemoDialog />
               <button
                 type="button"
                 onClick={() => setPresentationMode((prev) => !prev)}
-                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-slate-700 transition hover:border-sky-500"
+                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 transition hover:border-sky-500"
               >
-                {presentationMode ? "Presentation: ON" : "Presentation: OFF"}
+                {presentationMode ? "Presentation: on" : "Presentation: off"}
               </button>
               <a
                 href={REPO_ORIGIN}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-slate-700 underline-offset-2 transition hover:border-sky-500 hover:text-sky-700 hover:underline"
+                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 underline-offset-2 transition hover:border-sky-500 hover:text-sky-700 hover:underline"
               >
                 GitHub
               </a>
@@ -928,123 +1371,562 @@ export default function Home() {
           </div>
         </div>
 
-        <div>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-            Run mode
-          </div>
+        <div className="mt-6 grid gap-3 md:grid-cols-3">
+          <article className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <h4 className="text-sm font-semibold text-slate-900">Same input, different architectures</h4>
+            <p className="mt-1 text-sm text-slate-700">
+              The exact same question is sent to two systems: a single-call model and an
+              adversarial committee. The comparison isolates architecture as the variable.
+            </p>
+          </article>
+          <article className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <h4 className="text-sm font-semibold text-slate-900">Challenge is externalized</h4>
+            <p className="mt-1 text-sm text-slate-700">
+              The committee role set forces challenge, counterargument, and evidence standards.
+              Hidden assumptions and trade-offs become explicit in the transcript.
+            </p>
+          </article>
+          <article className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <h4 className="text-sm font-semibold text-slate-900">Quality is measured independently</h4>
+            <p className="mt-1 text-sm text-slate-700">
+              Both outputs are scored by an independent evaluator using the same rubric, so
+              deltas show whether architecture improves decision quality.
+            </p>
+          </article>
+        </div>
+
+        <div
+          ref={questionInputRef}
+          className="mt-8 border-t border-slate-200/80 pt-8"
+        >
           <div
-            role="radiogroup"
-            aria-label="Execution mode"
-            className="inline-flex w-full overflow-hidden rounded-xl border border-slate-300 bg-slate-100 p-1 md:w-auto"
+            className={`rounded-2xl border border-slate-200/90 bg-white/70 p-4 shadow-sm backdrop-blur-sm md:p-5 ${
+              isCybercool ? "font-mono" : ""
+            }`}
           >
-            {runModeOptions.map((option) => {
-              const active = runMode === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  onClick={() => setRunMode(option.value)}
-                  disabled={isRunning}
-                  className={`flex-1 rounded-lg px-5 py-2.5 text-left transition md:min-w-[260px] ${
-                    active
-                      ? "bg-slate-900 text-white shadow-sm"
-                      : "bg-transparent text-slate-700 hover:bg-white"
-                  } ${isRunning ? "cursor-not-allowed opacity-60" : ""}`}
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  {isCybercool ? "Prompt // uplink" : "Decision question"}
+                </div>
+                <p className="mt-1 text-xs text-slate-600">
+                  {isCybercool
+                    ? "Same buffer → naive stack + committee stack. Primary exec below."
+                    : "Pick a preset or type your own — the same text is sent to both the single-call model and the committee."}
+                  {" "}
+                  <button
+                    type="button"
+                    onClick={() => (document.getElementById("about-demo-dialog") as HTMLDialogElement)?.showModal()}
+                    className="font-medium text-sky-700 underline-offset-2 hover:underline"
+                  >
+                    New here? See key terms
+                  </button>
+                </p>
+              </div>
+            </div>
+
+            <HeroPromptLibrary
+              presets={PRESET_QUESTIONS}
+              activeQuestion={question}
+              onSelect={handleQuestionChange}
+              disabled={isRunning}
+              isCybercool={isCybercool}
+            />
+
+            <div className="mt-4">
+              <textarea
+                className={`min-h-32 w-full rounded-xl border border-slate-300 bg-white p-4 text-slate-900 shadow-inner outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 ${
+                  presentationMode ? "text-lg leading-8" : "text-base leading-7"
+                }`}
+                value={question}
+                onChange={(event) => handleQuestionChange(event.target.value)}
+                placeholder="Ask a decision question. The same prompt is sent to both systems..."
+                disabled={isRunning}
+                aria-label="Decision question for naive and committee pipelines"
+              />
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <button
+                type="button"
+                onClick={isSelfImprovementPrompt ? handleSelfImprovementRun : handleRun}
+                disabled={isRunning || !question.trim()}
+                className={`w-full rounded-xl px-6 py-3.5 text-base font-semibold text-white shadow-md transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  isSelfImprovementPrompt
+                    ? "bg-gradient-to-r from-violet-700 to-indigo-700 shadow-violet-900/20 hover:from-violet-600 hover:to-indigo-600"
+                    : "bg-slate-900 shadow-slate-900/20 hover:bg-slate-800"
+                }`}
+              >
+                {isRunning && selfImprovementProgress
+                  ? `Self-improving… round ${selfImprovementProgress.round}/${selfImprovementProgress.total}`
+                  : isRunning && magicRunProgress
+                    ? `Resolving… attempt ${magicRunProgress.attempt}/${magicRunProgress.maxAttempts}`
+                    : isRunning
+                      ? "Running…"
+                      : isSelfImprovementPrompt
+                        ? `Run Self-Improvement Loop (up to ${MAX_SELF_IMPROVEMENT_ROUNDS} rounds)`
+                        : "Run Committee"}
+              </button>
+
+              <div
+                className={`flex flex-col gap-2 sm:flex-row sm:items-center ${
+                  isCybercool ? "font-mono" : ""
+                }`}
+              >
+                <div
+                  role="radiogroup"
+                  aria-label="Execution mode"
+                  className="inline-flex overflow-hidden rounded-lg border border-slate-300 bg-slate-100 p-0.5 text-xs"
                 >
-                  <div className="text-sm font-semibold">{option.label}</div>
-                  <div className={`text-xs ${active ? "text-slate-200" : "text-slate-500"}`}>
-                    {option.description}
-                  </div>
+                  {runModeOptions.map((option) => {
+                    const active = runMode === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => setRunMode(option.value)}
+                        disabled={isRunning}
+                        className={`rounded-md px-3 py-1.5 font-semibold transition ${
+                          active
+                            ? "bg-white text-slate-900 shadow-sm"
+                            : "text-slate-600 hover:text-slate-900"
+                        } ${isRunning ? "cursor-not-allowed opacity-60" : ""}`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleMagicRun}
+                  disabled={isRunning || !question.trim()}
+                  className="rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-1.5 text-xs font-bold text-white shadow-md shadow-orange-900/20 transition hover:from-amber-400 hover:to-orange-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {magicRunProgress
+                    ? `Attempt ${magicRunProgress.attempt}… (${magicRunProgress.lastMajority})`
+                    : isCybercool
+                      ? "AUTO-RESOLVE LOOP"
+                      : "Run Until Resolved"}
                 </button>
-              );
-            })}
+              </div>
+
+              {runMode === "api" && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950">
+                  <span className="font-bold">
+                    {isCybercool ? "Uplink budget note:" : "API budget note:"}
+                  </span>{" "}
+                  {isCybercool ? (
+                    <>
+                      API LIVE mode sends live Anthropic Claude requests.{" "}
+                      <span className="font-semibold">
+                        One attempt runs the naive path, committee path, and two evaluator calls; adaptive depth
+                        may rerun the committee path with more rounds before that attempt is scored.
+                      </span>{" "}
+                      Batch N repeats that full stack N times to map variance; auto-resolve repeats it up to{" "}
+                      {MAX_MAGIC_RUN_ATTEMPTS} times until a clear majority appears. Start local, then
+                      spend API calls when live variance is the thing you want to measure.
+                    </>
+                  ) : (
+                    <>
+                      API mode calls live Anthropic Claude models.{" "}
+                      <span className="font-semibold">
+                        One run sends the prompt through the naive answer, the committee, and two independent
+                        evaluator calls; when adaptive depth is on, the committee path may rerun with additional
+                        rounds before the attempt is scored.
+                      </span>{" "}
+                      Use a single run for one live trace, a small batch to compare variance, and larger batches only
+                      when stability matters.{" "}
+                      <span className="font-semibold">
+                        &quot;Run Until Resolved&quot; can repeat that full stack up to {MAX_MAGIC_RUN_ATTEMPTS} times
+                      </span>{" "}
+                      while looking for a clear majority. During that loop, the guidance panel below shows whether the
+                      attempts are converging or diverging and provides a clearly labeled stop button that switches the
+                      next run back to Local.
+                    </>
+                  )}
+                </div>
+              )}
+
+              {magicRunProgress ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="text-xs font-semibold text-amber-950">
+                        Attempt {magicRunProgress.attempt} of {magicRunProgress.maxAttempts}
+                      </div>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-amber-900">
+                        Last majority: {magicRunProgress.lastMajority}. Completed attempts in this loop:{" "}
+                        {magicRunAttempts.length}.
+                      </p>
+                    </div>
+                    {magicRunExecutionMode === "api" ? (
+                      <button
+                        type="button"
+                        onClick={handleStopMagicRun}
+                        className="rounded-md border border-amber-400 bg-white px-3 py-1.5 text-[11px] font-semibold text-amber-950 shadow-sm transition hover:border-rose-400 hover:text-rose-800"
+                      >
+                        {magicRunStopRequested
+                          ? "Stop requested; next run Local"
+                          : "Stop API loop; switch next run to Local"}
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-amber-200">
+                    <div
+                      className="h-full rounded-full bg-amber-600 transition-all duration-500"
+                      style={{ width: `${(magicRunProgress.attempt / magicRunProgress.maxAttempts) * 100}%` }}
+                    />
+                  </div>
+                  <div
+                    className={`mt-3 rounded-md border px-3 py-2 text-xs leading-relaxed ${
+                      MAGIC_GUIDANCE_TONE_CLASS[magicRunGuidance.tone]
+                    }`}
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="font-semibold">Trend: {magicRunGuidance.label}</div>
+                        <p className="mt-0.5">{magicRunGuidance.detail}</p>
+                      </div>
+                      <div className="min-w-[9rem]">
+                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide">
+                          Continue signal
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-white/70">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              MAGIC_GUIDANCE_METER_CLASS[magicRunGuidance.tone]
+                            }`}
+                            style={{ width: `${magicRunGuidance.meterPercent}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <p className="mt-2 font-medium">{magicRunGuidance.recommendation}</p>
+                    <div className="mt-2 flex flex-wrap gap-1" aria-label="Run-until-resolved attempt outcomes">
+                      {Array.from({ length: magicRunProgress.maxAttempts }).map((_, index) => {
+                        const attemptRun = magicRunAttempts[index];
+                        const isCurrentAttempt = index + 1 === magicRunProgress.attempt && !attemptRun;
+                        const isResolvedAttempt =
+                          !!attemptRun && attemptRun.majorityAfter !== "Undetermined";
+                        const barClass = isResolvedAttempt
+                          ? "bg-emerald-600"
+                          : attemptRun
+                            ? "bg-amber-500"
+                            : isCurrentAttempt
+                              ? "animate-pulse bg-sky-500"
+                              : "bg-white/80";
+                        return (
+                          <span
+                            key={index}
+                            title={
+                              attemptRun
+                                ? `Attempt ${index + 1}: ${attemptRun.majorityAfter}`
+                                : isCurrentAttempt
+                                  ? `Attempt ${index + 1}: running`
+                                  : `Attempt ${index + 1}: pending`
+                            }
+                            className={`h-2 w-4 rounded-full border border-white/70 ${barClass}`}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {selfImprovementProgress ? (
+                <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
+                  <div className="flex items-center justify-between text-xs font-semibold text-violet-900">
+                    <span>
+                      Round {selfImprovementProgress.round} of {selfImprovementProgress.total}
+                    </span>
+                    <span>
+                      {selfImprovementProgress.cumulativeImprovements.length} improvement{selfImprovementProgress.cumulativeImprovements.length === 1 ? "" : "s"} accepted
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-violet-200">
+                    <div
+                      className="h-full rounded-full bg-violet-600 transition-all duration-500"
+                      style={{ width: `${(selfImprovementProgress.round / selfImprovementProgress.total) * 100}%` }}
+                    />
+                  </div>
+                  {selfImprovementProgress.cumulativeImprovements.length > 0 ? (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-[11px] font-medium text-violet-700">
+                        Accepted improvements so far
+                      </summary>
+                      <ol className="mt-1 space-y-0.5 pl-4 text-[11px] leading-relaxed text-violet-800">
+                        {selfImprovementProgress.cumulativeImprovements.map((item, idx) => (
+                          <li key={idx} className="list-decimal">
+                            {item.length > 120 ? `${item.slice(0, 120)}…` : item}
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  ) : null}
+                </div>
+              ) : null}
+              {isSelfImprovementPrompt && !isRunning ? (
+                <p className="text-[11px] leading-relaxed text-violet-700">
+                  Self-improvement mode: the committee will critique its own process, auto-accept
+                  identified concerns, and re-run with accumulated improvements — up to{" "}
+                  {MAX_SELF_IMPROVEMENT_ROUNDS} rounds or until no new concerns emerge.
+                </p>
+              ) : null}
+            </div>
+
+            <details
+              className={`mt-4 rounded-xl border border-slate-200 bg-slate-50/90 shadow-inner ${
+                isCybercool ? "font-mono" : ""
+              }`}
+            >
+              <summary className="cursor-pointer px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:px-5">
+                {isCybercool ? "Exec.mode // run.params" : "Settings — execution mode, rounds, batch"}
+              </summary>
+              <div className="px-4 pb-4 md:px-5">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  {isCybercool ? "Exec.mode // entropy source" : "Execution engine"}
+                </div>
+                {isCybercool ? (
+                  <p className="mt-2 text-[11px] leading-relaxed tracking-wide text-slate-600">
+                    LOCAL = deterministic sim (repeatable trace, no uplink). WAN = live models (same routes,
+                    stochastic text + scores). Same committee vs naive graph — different ground truth for what
+                    the bytes represent.
+                  </p>
+                ) : (
+                  <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                    <span className="font-semibold text-slate-900">Local</span> runs an in-process
+                    deterministic simulator: the same prompt follows the same scripted trace so you can learn
+                    the pipeline, panels, and rubrics without API keys, spend, or network variance.{" "}
+                    <span className="font-semibold text-slate-900">API</span> calls the same server routes
+                    against live models, so transcripts, inferred votes, and evaluator scores change run to run
+                    with real randomness.
+                  </p>
+                )}
+                <div
+                  role="radiogroup"
+                  aria-label="Execution mode"
+                  className={`mt-4 inline-flex w-full overflow-hidden rounded-xl border border-slate-300 bg-slate-100 p-1 md:w-auto ${
+                    isCybercool ? "font-mono" : ""
+                  }`}
+                >
+                  {runModeOptions.map((option) => {
+                    const active = runMode === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => setRunMode(option.value)}
+                        disabled={isRunning}
+                        className={`flex-1 rounded-lg px-4 py-2 text-left transition md:min-w-[220px] ${
+                          active
+                            ? "bg-slate-900 text-white shadow-sm"
+                            : "bg-transparent text-slate-700 hover:bg-white"
+                        } ${isRunning ? "cursor-not-allowed opacity-60" : ""}`}
+                      >
+                        <div className="text-sm font-semibold">{option.label}</div>
+                        <div className={`text-xs ${active ? "text-slate-200" : "text-slate-500"}`}>
+                          {option.description}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-5 border-t border-slate-200/90 pt-5">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    {isCybercool ? "Run.params // dispatch" : "Run configuration"}
+                  </div>
+                  <p className={`mt-2 text-xs leading-relaxed text-slate-600 ${isCybercool ? "font-mono" : ""}`}>
+                    {isCybercool
+                      ? "Single run = one trace. Batch = repeated traces for variance. Auto-resolve = repeated full stacks until a majority appears or the attempt cap is reached."
+                      : "Use one run when you want a single trace, a small batch when you want to compare variance, and Run Until Resolved when you specifically want to see whether repeated attempts can produce a clear majority."}
+                  </p>
+                  <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+                    <label
+                      className={`flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 lg:min-w-[200px] ${
+                        isCybercool ? "font-mono normal-case" : ""
+                      }`}
+                    >
+                      <span>{isCybercool ? "Rounds" : "Deliberation rounds"}</span>
+                      <input
+                        type="number"
+                        min={2}
+                        max={6}
+                        value={deliberationRounds}
+                        onChange={(event) =>
+                          setDeliberationRounds(Math.max(2, Math.min(6, Number(event.target.value) || 2)))
+                        }
+                        disabled={isRunning}
+                        className="w-16 rounded border border-slate-300 bg-white px-2 py-1 text-sm font-normal normal-case tracking-normal text-slate-800"
+                      />
+                    </label>
+                    <label
+                      className={`flex flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 lg:min-w-[280px] ${
+                        isCybercool ? "font-mono text-xs" : ""
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={adaptiveDepth}
+                        onChange={(event) => setAdaptiveDepth(event.target.checked)}
+                        disabled={isRunning}
+                      />
+                      {isCybercool
+                        ? "Auto-expand rounds if majority undetermined"
+                        : "Auto-add rounds when outcome stays undetermined"}
+                    </label>
+                  </div>
+
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                      <label
+                        className={`text-xs font-semibold uppercase tracking-wide text-slate-600 ${
+                          isCybercool ? "font-mono" : ""
+                        }`}
+                      >
+                        {isCybercool ? "Batch N" : "Batch runs"}
+                        <input
+                          type="number"
+                          min={2}
+                          max={10}
+                          value={batchRunCount}
+                          onChange={(event) =>
+                            setBatchRunCount(Math.max(2, Math.min(10, Number(event.target.value) || 2)))
+                          }
+                          disabled={isRunning}
+                          className="ml-2 w-16 rounded border border-slate-300 bg-white px-2 py-1 text-sm font-normal normal-case tracking-normal text-slate-800"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleBatchRun}
+                        disabled={isRunning || !question.trim()}
+                        className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Run Batch
+                      </button>
+                      {batchProgress ? (
+                        <span className={`text-xs text-slate-600 ${isCybercool ? "font-mono" : ""}`}>
+                          {batchProgress.current}/{batchProgress.total}
+                        </span>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleClearCurrentQuestionRuns}
+                      disabled={isRunning || sameQuestionRuns.length === 0}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60 sm:ml-auto"
+                    >
+                      {isCybercool ? "CLR question runs" : "Clear runs for current question"}
+                      {sameQuestionRuns.length > 0 ? (
+                        <span className="ml-2 rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-600">
+                          {sameQuestionRuns.length}
+                        </span>
+                      ) : null}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </details>
           </div>
         </div>
+      </header>
+
+      <div
+        className={`sticky top-0 z-50 -mx-6 flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-slate-200 bg-white/95 px-6 py-2 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/88 ${
+          isCybercool ? "font-mono" : ""
+        }`}
+      >
+        <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Jump</span>
+          <button
+            type="button"
+            onClick={() => setIsLiveGraphMinimized((prev) => !prev)}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] text-slate-700 transition hover:border-sky-500"
+          >
+            {isLiveGraphMinimized ? "Expand graph & jury" : "Minimize graph & jury"}
+          </button>
+          <button
+            type="button"
+            onClick={scrollToQuestionInput}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] text-slate-700 transition hover:border-sky-500"
+          >
+            Run another prompt
+          </button>
+          <button
+            type="button"
+            onClick={scrollToEvaluation}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] text-slate-700 transition hover:border-sky-500"
+          >
+            Jump to evaluation
+          </button>
+          <button
+            type="button"
+            onClick={scrollToInsights}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] text-slate-700 transition hover:border-sky-500"
+          >
+            Jump to insights
+          </button>
+          {showAccountabilityLane ? (
+            <button
+              type="button"
+              onClick={scrollToAccountability}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] text-slate-700 transition hover:border-sky-500"
+            >
+              Accountability
+            </button>
+          ) : null}
+      </div>
+
+      <div ref={commandCenterRef}>
+        <LiveRunCommandCenter
+          isCybercool={isCybercool}
+          question={question}
+          runMode={runMode}
+          activeSource={activeSource}
+          phaseLabel={phaseLabel}
+          batchProgress={batchProgress}
+          isRunning={isRunning}
+          hasAnyOutput={hasAnyOutput}
+          naiveText={naiveText}
+          naiveStreaming={naiveStreaming}
+          characterResponses={characterResponses}
+          evaluation={evaluation}
+          naiveEvaluation={naiveEvaluation}
+          evaluating={evaluating}
+          currentPhase={currentPhase}
+          trendPoints={trendPoints}
+          dashboardStatus={dashboardStatus}
+          convergenceLabel={convergenceLabel}
+          committeeMean={committeeMean}
+          naiveMean={naiveMean}
+          deltaMean={deltaMean}
+          majorityStabilityRate={majorityStabilityRate}
+          majorityInstabilityFraming={majorityInstabilityFraming}
+          error={error}
+        />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <div className="space-y-5">
-          <div ref={questionInputRef}>
-            <QuestionInput
-              question={question}
-              onQuestionChange={handleQuestionChange}
-              onRun={handleRun}
-              deliberationRounds={deliberationRounds}
-              onDeliberationRoundsChange={(next) => setDeliberationRounds(Math.max(2, Math.min(6, next)))}
-              adaptiveDepth={adaptiveDepth}
-              onAdaptiveDepthChange={setAdaptiveDepth}
-              presets={PRESET_QUESTIONS}
-              disabled={isRunning}
-              presentationMode={presentationMode}
-              batchRunCount={batchRunCount}
-              onBatchRunCountChange={(next) => setBatchRunCount(Math.max(2, Math.min(10, next)))}
-              onBatchRun={handleBatchRun}
-              onClearCurrentQuestionRuns={handleClearCurrentQuestionRuns}
-              batchProgress={batchProgress}
-              sameQuestionRunsCount={sameQuestionRuns.length}
-            />
-          </div>
-
+        <div className="min-w-0 space-y-5">
           {error ? (
             <div className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-700">
               {error}
             </div>
           ) : null}
 
-          {hasAnyOutput ? (
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs text-slate-700 shadow-sm">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 font-semibold uppercase tracking-wide text-slate-700">
-                  {activeSource}
-                </span>
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5">
-                  {phaseLabel}
-                </span>
-                {batchProgress ? (
-                  <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-sky-800">
-                    Batch {batchProgress.current}/{batchProgress.total}
-                  </span>
-                ) : null}
-                {isRunning ? (
-                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-800">
-                    Running...
-                  </span>
-                ) : null}
-                {!isRunning ? (
-                  <span
-                    className={`rounded-full border px-2 py-0.5 ${
-                      isDecisionFinalized
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                        : "border-rose-200 bg-rose-50 text-rose-800"
-                    }`}
-                  >
-                    {isDecisionFinalized
-                      ? "Decision finalization ready"
-                      : `Disposition required (${undispositionedConcerns.length})`}
-                  </span>
-                ) : null}
-              </div>
-              <LiveMetricsStrip
-                characterResponses={characterResponses}
-                evaluation={evaluation}
-                evaluating={evaluating}
-                historyCommitteeMean={sameQuestionRuns.length > 0 ? committeeMean : null}
-              />
-              <CalculationExplainer
-                activeSource={activeSource}
-                currentPhase={currentPhase}
-                configuredRounds={deliberationRounds}
-                adaptiveDepth={adaptiveDepth}
-                characterResponses={characterResponses}
-                evaluation={evaluation}
-                evaluating={evaluating}
-                historyCommitteeMean={sameQuestionRuns.length > 0 ? committeeMean : null}
-                concernsCount={concerns.length}
-                undispositionedCount={undispositionedConcerns.length}
-                dispositionedCount={dispositionedConcernIds.size}
-              />
+          {hasAnyOutput && !isRunning ? (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
+              <span className="font-semibold">What to look at first: </span>
+              The two evaluation panels below show how the evaluator scored both outputs on the
+              same five-dimension rubric. The left panel is the single-call answer; the right is the committee.
+              Compare the scores, then expand sections below for deeper analysis.
             </div>
           ) : null}
 
@@ -1058,6 +1940,23 @@ export default function Home() {
             </div>
           ) : null}
 
+          <div ref={evaluationRef} className="grid gap-4 xl:grid-cols-2">
+            <EvaluationPanel
+              evaluation={naiveEvaluation}
+              evaluating={evaluating}
+              title="NAIVE EVALUATION (same rubric)"
+              sourceLabel={activeSource}
+              presentationMode={presentationMode}
+            />
+            <EvaluationPanel
+              evaluation={evaluation}
+              evaluating={evaluating}
+              title="COMMITTEE EVALUATION (same rubric)"
+              sourceLabel={activeSource}
+              presentationMode={presentationMode}
+            />
+          </div>
+
           <div className="grid gap-4 xl:grid-cols-[1fr_1.4fr]">
             <NaivePanel
               text={naiveText}
@@ -1065,7 +1964,7 @@ export default function Home() {
               sourceLabel={activeSource}
               presentationMode={presentationMode}
             />
-            <div ref={committeeRef}>
+            <div ref={committeeRef} className="min-h-0 h-full">
               <CommitteePanel
                 currentPhase={currentPhase}
                 characterResponses={characterResponses}
@@ -1075,176 +1974,166 @@ export default function Home() {
             </div>
           </div>
 
-          <div ref={evaluationRef} className="grid gap-4 xl:grid-cols-2">
-            <EvaluationPanel
-              evaluation={naiveEvaluation}
-              evaluating={evaluating}
-              title="NAIVE EVALUATION (independent model)"
-              sourceLabel={activeSource}
-              presentationMode={presentationMode}
-            />
-            <EvaluationPanel
-              evaluation={evaluation}
-              evaluating={evaluating}
-              title="COMMITTEE EVALUATION (independent model)"
-              sourceLabel={activeSource}
-              presentationMode={presentationMode}
-            />
-          </div>
+          {/* Tier 2: How scores work */}
+          <details className="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <summary className="cursor-pointer px-4 py-3">
+              <span className="text-sm font-semibold text-slate-800">How scores are computed</span>
+              <span className="ml-2 text-xs text-slate-500">Step-by-step rubric calculation and anatomy of the deliberation</span>
+            </summary>
+            <div className="space-y-5 px-4 pb-4">
+              {hasAnyOutput ? (
+                <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs text-slate-700 shadow-sm">
+                  <CalculationExplainer
+                    activeSource={activeSource}
+                    currentPhase={currentPhase}
+                    configuredRounds={deliberationRounds}
+                    adaptiveDepth={adaptiveDepth}
+                    characterResponses={characterResponses}
+                    evaluation={evaluation}
+                    evaluating={evaluating}
+                    historyCommitteeMean={sameQuestionRuns.length > 0 ? committeeMean : null}
+                    concernsCount={concerns.length}
+                    undispositionedCount={undispositionedConcerns.length}
+                    dispositionedCount={dispositionedConcernIds.size}
+                    isRunning={isRunning}
+                  />
+                </div>
+              ) : null}
 
-          <DeliberationDashboard
-            question={question}
-            runCount={sameQuestionRuns.length}
-            dashboardStatus={dashboardStatus}
-            convergenceLabel={convergenceLabel}
-            committeeMean={committeeMean}
-            naiveMean={naiveMean}
-            deltaMean={deltaMean}
-            positiveDeltaRate={positiveDeltaRate}
-            averageVoteShifts={averageVoteShifts}
-            majorityStabilityRate={majorityStabilityRate}
-            voteSourceSummary={liveVoteSourceSummary}
-            majorityBeforeDistribution={majorityBeforeDistribution}
-            majorityAfterDistribution={majorityAfterDistribution}
-            trendPoints={trendPoints}
-            committeeKeyFinding={evaluation?.key_finding}
-            naiveKeyFinding={naiveEvaluation?.key_finding}
-            lastRun={
-              lastRun
-                ? {
-                    roundsUsed: lastRun.roundsUsed,
-                    resolvedByExtraRounds: lastRun.resolvedByExtraRounds,
-                    majorityBefore: lastRun.majorityBefore,
-                    majorityAfter: lastRun.majorityAfter,
-                    delta: lastRun.delta,
-                    committeeTier: lastRun.committeeTier,
-                    naiveTier: lastRun.naiveTier,
-                  }
-                : null
-            }
-          />
-
-          {showAccountabilityLane ? (
-            <div ref={accountabilityRef}>
-              <DecisionAccountabilitySection
+              <DeliberationAnatomyCanvas
+                characterResponses={characterResponses}
+                naiveEvaluation={naiveEvaluation}
+                committeeEvaluation={evaluation}
                 presentationMode={presentationMode}
-                isDecisionFinalized={isDecisionFinalized}
-                undispositionedCount={undispositionedConcerns.length}
-                concerns={concerns}
-                dispositions={dispositions}
-                overrides={overrides}
-                onAddConcern={handleAddConcern}
-                onUpdateConcern={handleUpdateConcern}
-                onSeedFromTranscript={handleSeedConcernsFromTranscript}
-                onDispositionComplete={handleDispositionComplete}
+                currentPhase={currentPhase}
+                isRunning={isRunning}
               />
             </div>
+          </details>
+
+          {/* Tier 3: Decision analysis */}
+          <details className="rounded-xl border border-slate-200 bg-white shadow-sm" ref={insightsRef}>
+            <summary className="cursor-pointer px-4 py-3">
+              <span className="text-sm font-semibold text-slate-800">Decision analysis</span>
+              <span className="ml-2 text-xs text-slate-500">Dashboard, vote movement, and naive-vs-committee comparison</span>
+            </summary>
+            <div className="space-y-5 px-4 pb-4">
+              <DeliberationDashboard
+                question={question}
+                runCount={sameQuestionRuns.length}
+                dashboardStatus={dashboardStatus}
+                convergenceLabel={convergenceLabel}
+                committeeMean={committeeMean}
+                naiveMean={naiveMean}
+                deltaMean={deltaMean}
+                positiveDeltaRate={positiveDeltaRate}
+                averageVoteShifts={averageVoteShifts}
+                majorityStabilityRate={majorityStabilityRate}
+                majorityInstabilityFraming={majorityInstabilityFraming}
+                voteSourceSummary={liveVoteSourceSummary}
+                majorityBeforeDistribution={majorityBeforeDistribution}
+                majorityAfterDistribution={majorityAfterDistribution}
+                trendPoints={trendPoints}
+                committeeKeyFinding={evaluation?.key_finding}
+                naiveKeyFinding={naiveEvaluation?.key_finding}
+                lastRun={
+                  lastRun
+                    ? {
+                        roundsUsed: lastRun.roundsUsed,
+                        resolvedByExtraRounds: lastRun.resolvedByExtraRounds,
+                        majorityBefore: lastRun.majorityBefore,
+                        majorityAfter: lastRun.majorityAfter,
+                        delta: lastRun.delta,
+                        committeeTier: lastRun.committeeTier,
+                        naiveTier: lastRun.naiveTier,
+                      }
+                    : null
+                }
+              />
+
+              <ComparisonInsightsPanel
+                naiveEvaluation={naiveEvaluation}
+                committeeEvaluation={evaluation}
+                characterResponses={characterResponses}
+                presentationMode={presentationMode}
+              />
+            </div>
+          </details>
+
+          {/* Tier 4: Cross-run evidence */}
+          <details className="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <summary className="cursor-pointer px-4 py-3">
+              <span className="text-sm font-semibold text-slate-800">Cross-run evidence</span>
+              <span className="ml-2 text-xs text-slate-500">
+                {sameQuestionRuns.length < 2
+                  ? "Run the same prompt 2+ times to accumulate evidence"
+                  : `${sameQuestionRuns.length} runs — longitudinal trends and stability`}
+              </span>
+            </summary>
+            <div className="space-y-5 px-4 pb-4">
+              <RunOutcomeLogPanel
+                question={question}
+                runs={sameQuestionRuns}
+                presentationMode={presentationMode}
+                isCybercool={isCybercool}
+              />
+
+              <LongitudinalEvidencePanel summary={evidenceSummary} />
+
+              <EvidenceRibbonPanel
+                runs={sameQuestionRuns}
+                evidenceSummary={evidenceSummary}
+                presentationMode={presentationMode}
+              />
+            </div>
+          </details>
+
+          {/* Accountability */}
+          {showAccountabilityLane ? (
+            <details className="rounded-xl border border-slate-200 bg-white shadow-sm" open={concerns.length > 0 ? true : undefined} ref={accountabilityRef}>
+              <summary className="cursor-pointer px-4 py-3">
+                <span className="text-sm font-semibold text-slate-800">Decision accountability</span>
+                <span className="ml-2 text-xs text-slate-500">Concerns, dispositions, and overrides</span>
+              </summary>
+              <div className="px-4 pb-4">
+                <DecisionAccountabilitySection
+                  presentationMode={presentationMode}
+                  isDecisionFinalized={isDecisionFinalized}
+                  undispositionedCount={undispositionedConcerns.length}
+                  concerns={concerns}
+                  dispositions={dispositions}
+                  overrides={overrides}
+                  onAddConcern={handleAddConcern}
+                  onUpdateConcern={handleUpdateConcern}
+                  onSeedFromTranscript={handleSeedConcernsFromTranscript}
+                  onDispositionComplete={handleDispositionComplete}
+                />
+              </div>
+            </details>
           ) : null}
 
-          <div ref={insightsRef}>
-            <ComparisonInsightsPanel
-              naiveEvaluation={naiveEvaluation}
-              committeeEvaluation={evaluation}
-              characterResponses={characterResponses}
-              presentationMode={presentationMode}
-            />
-          </div>
-
-          <LongitudinalEvidencePanel summary={evidenceSummary} />
-
-          <CommitteeDynamicsPanel characterResponses={characterResponses} />
-
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 border-b border-slate-200 pb-2">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-700">
-            About this comparison
-          </div>
-          <p className="mt-1 text-sm text-slate-700">
-            Background on what the demo measures and why some prompts converge while others diverge.
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">What this demonstrates</h3>
-            <div className="mt-2 grid gap-3 md:grid-cols-3">
-              <article className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                <h4 className="text-sm font-semibold text-slate-900">Same input, different architectures</h4>
-                <p className="mt-1 text-sm text-slate-700">
-                  The exact same question is sent to two systems: a single-call model and an
-                  adversarial committee. The comparison isolates architecture as the variable.
-                </p>
-              </article>
-              <article className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                <h4 className="text-sm font-semibold text-slate-900">Metacognition is externalized</h4>
-                <p className="mt-1 text-sm text-slate-700">
-                  The committee role set forces challenge, counterargument, and evidence standards.
-                  Hidden assumptions and trade-offs become explicit in the transcript.
-                </p>
-              </article>
-              <article className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                <h4 className="text-sm font-semibold text-slate-900">Quality is measured independently</h4>
-                <p className="mt-1 text-sm text-slate-700">
-                  Both outputs are scored by an independent evaluator using the same rubric, so
-                  rubric deltas show whether architecture improves decision quality.
-                </p>
-              </article>
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">Convergence vs divergence test</h3>
-            <p className="mt-1 text-sm text-slate-700">
-              Use the preset prompts from repo comparisons. The CI-job prompt is expected to
-              converge (same verdict across pipelines). The Code-of-Conduct prompt is expected to
-              diverge (deliberation can flip the majority after enforcement-risk stress-testing).
-            </p>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <article className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                <h4 className="text-sm font-semibold text-slate-900">Convergent prompt profile</h4>
-                <p className="mt-1 text-sm text-slate-700">
-                  Operational/timing questions with shared constraints often keep the same verdict,
-                  while deliberation improves rationale quality and adds revisit conditions.
-                </p>
-              </article>
-              <article className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                <h4 className="text-sm font-semibold text-slate-900">Divergent prompt profile</h4>
-                <p className="mt-1 text-sm text-slate-700">
-                  Value-laden governance questions can shift after challenge-response exposes
-                  unpriced risks, changing votes and occasionally the final majority.
-                </p>
-              </article>
-            </div>
-            <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
-              <h4 className="text-sm font-semibold text-slate-900">How to measure quality and stability</h4>
-              <ul className="mt-1 list-disc pl-5 text-sm text-slate-700">
-                <li>
-                  Accuracy proxy: independent evaluator average and tier (`committee - naive` delta).
-                </li>
-                <li>Condorcet lens: inferred vote shifts and majority before/after cross-examination.</li>
-                <li>Stability: run the same prompt multiple times and inspect score spread.</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-          </section>
-
-          <details className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-              Show raw call outputs
+          {/* Tier 5: Committee dynamics & raw transcripts */}
+          <details className="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <summary className="cursor-pointer px-4 py-3">
+              <span className="text-sm font-semibold text-slate-800">Committee dynamics &amp; raw transcripts</span>
+              <span className="ml-2 text-xs text-slate-500">Inter-character dynamics, convergence patterns, and full output text</span>
             </summary>
-            <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                <div className="mb-2 text-sm font-semibold text-slate-800">Naive Output</div>
-                <pre className="max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-5 text-slate-700">
-                  {naiveText || "(no output yet)"}
-                </pre>
-              </div>
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                <div className="mb-2 text-sm font-semibold text-slate-800">Committee Output</div>
-                <pre className="max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-5 text-slate-700">
-                  {liveTranscript || "(no output yet)"}
-                </pre>
+            <div className="space-y-5 px-4 pb-4">
+              <CommitteeDynamicsPanel characterResponses={characterResponses} />
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-2 text-sm font-semibold text-slate-800">Naive Output</div>
+                  <pre className="max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-5 text-slate-700">
+                    {naiveText || "(no output yet)"}
+                  </pre>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-2 text-sm font-semibold text-slate-800">Committee Output</div>
+                  <pre className="max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-5 text-slate-700">
+                    {liveTranscript || "(no output yet)"}
+                  </pre>
+                </div>
               </div>
             </div>
           </details>
@@ -1266,69 +2155,37 @@ export default function Home() {
 
         </div>
 
-        <aside
-          className="pointer-events-auto fixed bottom-4 right-4 z-50 w-1/3 min-w-[200px] lg:static lg:w-auto lg:min-w-0 lg:max-w-none lg:self-start lg:sticky lg:top-6"
-          aria-live="polite"
-          role="complementary"
-        >
-          <div className="space-y-2 drop-shadow-xl lg:drop-shadow-none">
-            {!isLiveGraphMinimized ? (
-              <CommitteeNetworkMini characterResponses={characterResponses} />
-            ) : (
-              <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
-                  Live Interaction
-                </div>
-                <div className="mt-1 text-xs text-slate-600">Graph minimized.</div>
-              </section>
-            )}
-            <div className="rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">
-                Quick actions
-              </div>
-              <div className="flex flex-wrap gap-1">
-                <button
-                  type="button"
-                  onClick={() => setIsLiveGraphMinimized((prev) => !prev)}
-                  className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[10px] text-slate-700 transition hover:border-sky-500"
-                >
-                  {isLiveGraphMinimized ? "Expand graph" : "Minimize graph"}
-                </button>
-                <button
-                  type="button"
-                  onClick={scrollToQuestionInput}
-                  className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[10px] text-slate-700 transition hover:border-sky-500"
-                >
-                  Run another prompt
-                </button>
-                <button
-                  type="button"
-                  onClick={scrollToEvaluation}
-                  className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[10px] text-slate-700 transition hover:border-sky-500"
-                >
-                  Jump to evaluation
-                </button>
-                <button
-                  type="button"
-                  onClick={scrollToInsights}
-                  className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[10px] text-slate-700 transition hover:border-sky-500"
-                >
-                  Jump to insights
-                </button>
-                {showAccountabilityLane ? (
-                  <button
-                    type="button"
-                    onClick={scrollToAccountability}
-                    className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[10px] text-slate-700 transition hover:border-sky-500"
-                  >
-                    Accountability
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        </aside>
+        <ObservabilityDock
+          isCybercool={isCybercool}
+          isLiveGraphMinimized={isLiveGraphMinimized}
+          hasAnyOutput={hasAnyOutput}
+          runMode={runMode}
+          activeSource={activeSource}
+          phaseLabel={phaseLabel}
+          batchProgress={batchProgress}
+          isRunning={isRunning}
+          isDecisionFinalized={isDecisionFinalized}
+          undispositionedConcernsCount={undispositionedConcerns.length}
+          characterResponses={characterResponses}
+          evaluation={evaluation}
+          naiveEvaluation={naiveEvaluation}
+          evaluating={evaluating}
+          historyCommitteeMean={sameQuestionRuns.length > 0 ? committeeMean : null}
+          currentPhase={currentPhase}
+          trendPoints={trendPoints}
+          dashboardStatus={dashboardStatus}
+          convergenceLabel={convergenceLabel}
+          committeeMean={committeeMean}
+          deltaMean={deltaMean}
+          runCount={sameQuestionRuns.length}
+        />
       </div>
+
+      <CommitteeLiveFeed
+        characterResponses={characterResponses}
+        currentPhase={currentPhase}
+        presentationMode={presentationMode}
+      />
 
       <footer
         className={

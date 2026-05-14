@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     const useLocal = shouldUseLocal(normalizeExecutionMode(executionMode), apiKey);
 
     if (useLocal) {
-      return NextResponse.json(buildLocalEvaluation(mode ?? "committee"));
+      return NextResponse.json(buildLocalEvaluation(mode ?? "committee", question));
     }
 
     const client = new Anthropic({ apiKey: apiKey! });
